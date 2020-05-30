@@ -1,4 +1,3 @@
-import adv.adv_test
 from core.advbase import *
 from slot.a import *
 from slot.d import *
@@ -12,45 +11,39 @@ class Fleur(Adv):
     a3 = ('k_paralysis',0.2)
 
     conf = {}
-    conf['slot.a'] = TB()+SotS()
-    conf['acl'] = """
+    conf['slots.a'] = TB()+SotS()
+    conf['acl'] = '''
+        `dragon.act('c3 s end')
         `s2, s=1
         `s1
         `s3
         `fs, seq=4
-    """
+    '''
+    coab = ['Blade','Sharena','Peony']
     conf['afflict_res.paralysis'] = 0
 
     def init(self):
-        self.s1_stance = 1
+        self.phase['s1'] = 0
+
+    @staticmethod
+    def prerun_skillshare(adv, dst):
+        adv.phase[dst] = 0
 
     def s1_proc(self, e):
-        with Modifier("s1killer", "paralysis_killer", "hit", 0.8):
+        with Modifier('s1killer', 'paralysis_killer', 'hit', 0.8):
             coef = 3.33
-            self.dmg_make('s1', coef)
-
-            if self.s1_stance == 1:
-                self.afflics.paralysis('s1',110, 0.883)
-                self.s1_stance = 2
-            elif self.s1_stance == 2:
-                self.afflics.paralysis('s1',160, 0.883)
-                self.s1_stance = 3
-            elif self.s1_stance == 3:
-                self.afflics.paralysis('s1',160, 0.883)
-                self.s1_stance = 1
-
-            self.dmg_make('s1', coef)
-
+            self.dmg_make(e.name, coef)
+            self.phase[e.name] += 1
+            if self.phase[e.name] == 1:
+                self.afflics.paralysis(e.name,110,0.883)
+            else:
+                self.afflics.paralysis(e.name,160, 0.883)
+            self.dmg_make(e.name, coef)
+            self.phase[e.name] %= 3
 
     def s2_proc(self, e):
         self.s1.charge(self.s1.sp)
 
-
-
 if __name__ == '__main__':
-    conf = {}
-    adv.adv_test.test(module(), conf)
-
-
-
-
+    from core.simulate import test_with_argv
+    test_with_argv(None, *sys.argv)

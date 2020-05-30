@@ -1,4 +1,3 @@
-import adv.adv_test
 from core.advbase import *
 from slot.a import *
 from slot.d import *
@@ -92,17 +91,19 @@ class Skill_Ammo(Skill):
 class Mega_Man(Adv):
     comment = '16 hits leaf shield (max 32 hits)'
 
-    a1 = ('od', 0.15) # self is the coab
     conf = megaman_conf.copy()
-    conf['slot.d'] = Cerberus()
-    conf['slot.a'] = Primal_Crisis()+Dear_Diary()
+    conf['slots.d'] = Gala_Mars()
+    conf['slots.a'] = Primal_Crisis()+Dear_Diary()
     conf['acl'] = """
         # check_s(n) means neither s1 or s2 are active, and s[n] has full ammo
+        `dragon
         `s3, not self.s3_buff
         `s1, self.check_s(1) and self.bleed._static['stacks']<3
         `s2, self.s1_x.active and self.bleed._static['stacks']>=3
         `s1, self.s1_x.active and self.bleed._static['stacks']>=3
     """
+    coab = ['Blade', 'Marth', 'Tiki']
+
     conf['dragonform'] = {
         'act': 'c5 s',
 
@@ -136,10 +137,6 @@ class Mega_Man(Adv):
     def ds_proc(self):
         return self.dmg_make('ds',self.dragonform.conf.ds.dmg,'s')
 
-    def init(self):
-        # self.conf += Conf(megaman_conf)
-        del self.slots.c.ex['wand']
-
     def prerun(self):
         self.s1 = Skill_Ammo('s1', self.conf.s1)
         self.s1_x = X_alt(self, 's1', self.conf.s1, x_proc=self.l_megaman_s1_x, no_fs=True)
@@ -154,59 +151,27 @@ class Mega_Man(Adv):
         
         random.seed()
         self.bleed = Bleed('g_bleed', 0).reset()
-        self.bleed.quickshot_event.dname = 'x_s1_bleed'
-        self.bleed.true_dmg_event.dtype = 'x'
         self.bleed_chance = 0.5
 
     def proc_bleed(self):
         if random.random() <= self.bleed_chance:
-            self.bleed = Bleed('x', 1.32)
-            self.bleed.quickshot_event.dname = 'x_s1_bleed'
+            self.bleed = Bleed('o_metal_blade', 1.32)
+            self.bleed.quickshot_event.dname = 'o_metal_blade_bleed'
             self.bleed.true_dmg_event.dtype = 'x'
             self.bleed.on()
 
-    def charge_p(self, name, sp):
-        percent = sp
-        self.s3.charge(self.ceiling(self.conf.s3.sp*percent))
-        log('sp', name, '{:.0f}%   '.format(percent*100),'%d/%d, %d/%d, %d/%d'%(\
-            self.s1.charged, self.s1.sp, self.s2.charged, self.s2.sp, self.s3.charged, self.s3.sp) )
-        self.think_pin('prep')
-
     def charge(self, name, sp):
-        sp = int(sp) * self.float_problem(self.sp_mod(name))
-        sp = self.float_problem(sp)
-        sp = self.ceiling(sp)
-        self.s3.charge(sp)
-        self.think_pin('sp')
-
+        sp = self.sp_convert(self.sp_mod(name), sp)
         # ammo
         self.s1.charge_ammo(self.conf[name.split('_')[0]].ammo)
         self.s2.charge_ammo(self.conf[name.split('_')[0]].ammo)
-
-        log('sp', name, sp,'%d/%d, %d/%d, %d/%d'%(\
-            self.s1.current_ammo, self.s1.ammo, self.s2.current_ammo, self.s2.ammo, self.s3.charged, self.s3.sp))
-
-    # def alt_x_on(self, s, alt_l_x, alt_a_x):
-    #     self.l_x.off()
-    #     alt_l_x.on()
-    #     self.fs = self.fs_off
-    #     self.x1 = alt_a_x
-    #     self.x2 = alt_a_x
-    #     self.x3 = alt_a_x
-    #     self.x4 = alt_a_x
-    #     self.x5 = alt_a_x
-    #     s.is_active = True
-
-    # def alt_x_off(self, s, alt_l_x):
-    #     alt_l_x.off()
-    #     self.l_x.on()
-    #     self.fs = self.fs_normal
-    #     self.x1 = self.a_x1
-    #     self.x2 = self.a_x2
-    #     self.x3 = self.a_x3
-    #     self.x4 = self.a_x4
-    #     self.x5 = self.a_x5
-    #     s.is_active = False
+        self.s3.charge(sp)
+        try:
+            self.s4.charge(sp)
+            log('sp', name, sp, f'{self.s1.current_ammo}/{self.s1.ammo}, {self.s2.current_ammo}/{self.s2.ammo}, {self.s3.charged}/{self.s3.sp}, {self.s4.charged}/{self.s4.sp}')
+        except:
+            log('sp', name, sp, f'{self.s1.current_ammo}/{self.s1.ammo}, {self.s2.current_ammo}/{self.s2.ammo}, {self.s3.charged}/{self.s3.sp}')
+        self.think_pin('sp')
 
     def s1_proc(self, e):
         if self.s2_x.active:
@@ -233,7 +198,7 @@ class Mega_Man(Adv):
 
     def l_megaman_s1_x(self, e):
         self.hits += self.conf.s1.x1.hit
-        self.dmg_make('o_x_metal_blade', self.conf.s1.x1.dmg*self.conf.s1.x1.hit)
+        self.dmg_make('o_metal_blade', self.conf.s1.x1.dmg*self.conf.s1.x1.hit, 'x')
         self.proc_bleed()
         self.s1.current_ammo -= self.s1.cost
         log('sp', 'metal_blade', -self.s1.cost,'%d/%d, %d/%d, %d/%d'%(\
@@ -243,7 +208,7 @@ class Mega_Man(Adv):
 
     def l_megaman_s2_x(self, e):
         self.hits += self.conf.s2.x1.hit
-        self.dmg_make('o_x_leaf_shield', self.conf.s2.x1.dmg*self.conf.s2.x1.hit)
+        self.dmg_make('o_leaf_shield', self.conf.s2.x1.dmg*self.conf.s2.x1.hit, 'x')
         self.s2.current_ammo -= self.s2.cost
         log('sp', 'leaf_shield', -self.s2.cost,'%d/%d, %d/%d, %d/%d'%(\
             self.s1.current_ammo, self.s1.ammo, self.s2.current_ammo, self.s2.ammo, self.s3.charged, self.s3.sp))
@@ -257,5 +222,5 @@ class Mega_Man(Adv):
             return self.s2.current_ammo >= self.s2.ammo and not self.s1_x.active and not self.s2_x.active
 
 if __name__ == '__main__':
-    conf = {}
-    adv.adv_test.test(module(), conf)
+    from core.simulate import test_with_argv
+    test_with_argv(None, *sys.argv)

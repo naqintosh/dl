@@ -1,25 +1,27 @@
-import adv.adv_test
 from core.advbase import *
+from slot.a import *
 from slot.d import *
 
 def module():
     return Pietro
 
 class Pietro(Adv):
-    a1 = ('cd',0.13)
 #    comment = 'unsuitable resist'
+    
+    a1 = ('cd',0.13)
+
     conf = {}
+    conf['slots.a'] = RR()+Breakfast_at_Valerios()
+    conf['slots.frostbite.a'] = Primal_Crisis()+His_Clever_Brother()
+    conf['slots.d'] = Leviathan()
     conf['acl'] = """
+        `dragon
         `s1
         `s3,seq=4
         `fs,seq=5
         """
-
-    def d_slots(self):
-        self.conf.slots.d = Siren()
-
+    coab = ['Tiki', 'Xander', 'Dagger']
 
 if __name__ == '__main__':
-    conf = {}
-    adv.adv_test.test(module(), conf)
-
+    from core.simulate import test_with_argv
+    test_with_argv(None, *sys.argv)

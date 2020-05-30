@@ -148,7 +148,7 @@ class Halloween_Maritimus(DragonBase):
         super().oninit(adv)
         from core.advbase import Teambuff
         self.ds_buff = Teambuff('ds_sd',0.3,10,'s','buff')
-        self.ds_buff.bufftime = self.ds_buff.nobufftime
+        self.ds_buff.bufftime = self.ds_buff._no_bufftime
 
     def ds_proc(self):
         self.ds_buff.on()
@@ -211,11 +211,48 @@ class Nimis(DragonBase):
 
     def ds_proc(self):
         from core.timeline import now
-        self.adv.dragonform.dragon_gauge += 20
+        self.adv.dragonform.dragon_gauge += 200
         max_time = self.adv.dragonform.dtime() - self.adv.dragonform.conf.dshift.startup
         cur_time = self.adv.dragonform.shift_end_timer.timing - now()
         add_time = min(abs(max_time - cur_time), 5)
         self.adv.dragonform.shift_end_timer.add(add_time)
+        return 0
+
+class Gaibhne_and_Creidhne(DragonBase):
+    ele = 'water'
+    att = 125
+    a = [('scharge', 0.35), ('a', 0.45)]
+    dragonform = {
+        'act': 'c3 s',
+
+        'dx1.dmg': 2.40,
+        'dx1.startup': 20 / 60.0, # c1 frames
+        'dx1.hit': 1,
+
+        'dx2.dmg': 2.64,
+        'dx2.startup': 36 / 60.0, # c2 frames
+        'dx2.hit': 1,
+
+        'dx3.dmg': 4.32,
+        'dx3.startup': 58 / 60.0, # c3 frames
+        'dx3.recovery': 56 / 60.0, # recovery
+        'dx3.hit': 2,
+
+        'ds.dmg': 0,
+        'ds.recovery': 150 / 60, # skill frames
+        'ds.hit': 0,
+
+        'dodge.startup': 40 / 60, # dodge frames
+    }
+
+    def ds_proc(self):
+        from core.timeline import Timer
+        def autocharge(t):
+            self.adv.charge_p('ds', 0.091)
+        charge = Timer(autocharge, 0.9, True).on()
+        def autocharge_off(t):
+            charge.off()
+        Timer(autocharge_off, 10, True).on()
         return 0
 
 class Unreleased_WaterFrostbitePunish(DragonBase):
@@ -227,8 +264,3 @@ class Unreleased_Water80Str(DragonBase):
     ele = 'water'
     att = 127
     a = [('a', 0.8, 'some wacky condition')]
-
-class Unreleased_DKR_What_is_love(DragonBase):
-    ele = 'water'
-    att = 127
-    a = [('a', 0.55), ('fs', 0.60), ('sp',0.30,'fs')]

@@ -1,4 +1,4 @@
-from slot.a import *
+from slot.a import Amulet, Conf
 
 
 class Plunder_Pals(Amulet): #Plunder Pals or Hitting the Books
@@ -61,12 +61,6 @@ class Fresh_Perspective(Amulet):
     a = [('fs',0.40),
          ('s',0.20)]
 FP = Fresh_Perspective
-
-
-class Bellathorna(Amulet):
-    att = 25
-    a = [('bt',0.20)]
-BT = Bellathorna
 
 
 #class Together_We_Stand(Amulet):
@@ -229,11 +223,7 @@ class Summer_Paladyns(Amulet):
 
 class The_Shining_Overlord(Amulet):
     att = 65
-    a = [('dc', 3)]
-    def on(self, c):
-        if c.wt == 'sword':
-            self.a = [('dc', 3)]
-            self.a += [('s',0.40)]
+    a = [('dc', 3), ('s',0.40,'sword')]
 TSO = The_Shining_Overlord
 
 class Halidom_Grooms(Amulet):
@@ -297,14 +287,6 @@ class High_Dragon_WP(Amulet):
 class Candy_Couriers(Amulet):
     att = 65
     a = [('bk',0.25), ('s',0.40,'wand')]
-
-class Candy_Couriers(Amulet):
-    att = 65
-    a = [('bk',0.25)]
-    def on(self, c):
-        if c.wt == 'wand':
-            self.a = [('bk',0.25)]
-            self.a += [('s',0.40)]
 CC = Candy_Couriers
 
 class From_Whence_He_Comes(Amulet):
@@ -443,6 +425,22 @@ class Brothers_in_Arms(Amulet):
 class A_Small_Courage(Amulet):
     att = 52
     a = [('bc',0.08), ('a', 0.13, 'hp100')]
+
+class The_Red_Impulse(Amulet):
+    att = 65
+    a = [('dcs', 3), ('dc', 3)]
+
+class Proper_Maintenance(Amulet):
+    att = 64
+    a = [('a', 0.15, 'hp100'),('bt',0.20)]
+
+class His_Clever_Brother(Amulet):
+    att = 51
+    a = [('k_frostbite',0.20),('sp',0.05)]
+
+class Memory_of_a_Friend(Amulet):
+    att = 64
+    a = [('sp', 0.08), ('a', 0.2, 'hit15')]
 
 amulets = []
 for k in list(globals()):

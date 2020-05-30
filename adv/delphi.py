@@ -9,14 +9,15 @@ class Delphi(Adv):
     a1 = ('a',-0.55)
 
     conf = {}
-    conf['slot.d'] = Fatalis()
-    conf['slot.a'] = Mega_Friends()+The_Fires_of_Hate()
+    conf['slots.a'] = Mega_Friends()+The_Fires_of_Hate()
+    conf['slots.d'] = Fatalis()
     conf['acl'] = """
         `s3, not self.s3_buff
         `s1
         `s2, self.s1fscharge == 0 and (s1.charged <= ((s1.sp/13)*9))
         `fs, x=2
     """
+    coab = ['Blade','Gala_Alex','Heinwald']
     conf['afflict_res.poison'] = 0
 
     def prerun(self):
@@ -30,11 +31,13 @@ class Delphi(Adv):
 
     def s1_proc(self, e):
         if self.s1defdown:
-            Debuff('s1defdown',0.20,10,1).on()
+            buff = Debuff('s1defdown',0.20,10,1)
+            buff.bufftime = buff._no_bufftime
+            buff.on()
         self.s1fscharge = 1
     
     def s2_proc(self, e):
-        self.afflics.poison('s2',120+self.flurry_poison*(self.hits>=15),3.00,27)
+        self.afflics.poison(e.name,120+self.flurry_poison*(self.hits>=15),3.00,27)
 
     def fs_proc(self, e):
         if self.s1fscharge > 0:

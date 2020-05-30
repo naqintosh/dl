@@ -1,31 +1,29 @@
-import adv.adv_test
 from core.advbase import *
+from slot.a import *
 from slot.d import *
 
 def module():
     return Waike
 
-
 class Waike(Adv):
+    a1 = ('edge_bog', 40, 'hp100')
+
     conf = {}
+    conf['slots.a'] = Primal_Crisis()+Mega_Friends()
+    conf['slots.d'] = Leviathan()
     conf['acl'] = """
+        `dragon
         `s1, fsc
         `s2, fsc
         `s3, fsc
         `fs, seq=4
         """
+    coab = ['Blade', 'Xander', 'Tiki']
     conf['afflict_res.bog'] = 100
 
-    def init(self):
-        self.fullhp = 0
-        if self.conf['afflict_res.bog'] < 100:
-            if self.condition('hp100'):
-                self.fullhp = 1
-
     def s2_proc(self, e):
-        self.afflics.bog.on('s2', 80+self.fullhp*40)
+        self.afflics.bog.on(e.name, 80)
 
 if __name__ == '__main__':
-    conf = {}
-    adv.adv_test.test(module(), conf)
-
+    from core.simulate import test_with_argv
+    test_with_argv(None, *sys.argv)

@@ -1,28 +1,30 @@
-import adv.adv_test
 from core.advbase import *
 from slot.a import *
-from slot.d import *
 
 def module():
     return Fjorm
 
 class Fjorm(Adv):
-    # comment = 'do not calc damage counter'
-    a3 = ('prep', 100)
+    comment = 'last bravery once at start'
+
+    a3 = [('prep',1.00), ('scharge_all', 0.05)]
+
     conf = {}
-    #conf['slot.d'] = DJ()
+    conf['slots.a'] = Resounding_Rendition()+His_Clever_Brother()
     conf['acl'] = """
         `s1
-        `s2
-        `s3, seq=5
-        `fs, seq=5
-        """
+        `s3
+        `s2, fsc or s=3
+        `fs, x=5
+    """
+    coab = ['Blade', 'Summer_Estelle', 'Xander']
 
     def prerun(self):
-        Teambuff('last bravery',0.3,15).on()
+        Teambuff('last_bravery',0.3,15).on()
+
+    def s1_proc(self, e):
+        self.afflics.frostbite(e.name,120,0.41)
 
 if __name__ == '__main__':
-    conf = {}
-    adv.adv_test.test(module(), conf)
-
-
+    from core.simulate import test_with_argv
+    test_with_argv(None, *sys.argv)

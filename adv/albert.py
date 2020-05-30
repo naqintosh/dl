@@ -1,31 +1,23 @@
-import adv.adv_test
 from core.advbase import *
 import copy
 from module.x_alt import Fs_alt
-from slot.a import *
-from slot.d import *
 
 def module():
     return Albert
-
 
 class Albert(Adv):
     a1 = ('fs',0.5)
     conf = {}
     conf['acl'] = """
+        `dragon, fsc
         `s2, s1.charged>=s1.sp-330
         `fs, s=2 and not self.afflics.paralysis.get()
         `s1, fsc
         `s3, fsc
         `fs, seq=2
         """
-    conf['slot.a'] = TSO()+SDO()
-    conf['slot.d'] = C_Phoenix()
+    coab = ['Blade','Dagger','Peony']
     conf['afflict_res.paralysis'] = 0
-
-    def init(self):
-        if self.condition('big hitbox'):
-            self.s1_proc = self.c_s1_proc
 
     def fs_proc_alt(self, e):
         self.afflics.paralysis('fs',100,0.803)
@@ -42,6 +34,11 @@ class Albert(Adv):
         self.a3 = Selfbuff('a2_str_passive',0.25,20,'att','passive')
 
         self.fs_alt_timer = Timer(self.fs_alt_end)
+        self.s1_hits = 6 if self.condition('big hitbox') else 4
+
+    @staticmethod
+    def prerun_skillshare(adv, dst):
+        adv.s2buff = Dummy()
 
     def fs_alt_end(self,t):
         self.fs_alt.off()
@@ -51,24 +48,13 @@ class Albert(Adv):
             self.s2.charge(160000.0/40)
             log('sp','s2autocharge')
 
-    def c_s1_proc(self, e):
-        if self.s2buff.get():
-            self.dmg_make("o_s1_s2boost",12.38-0.825)
-            self.dmg_make("o_s1_hit2", 0.83)
-            self.dmg_make("o_s1_hit3", 0.83)
-            self.dmg_make("o_s1_hit4", 0.83)
-            self.dmg_make("o_s1_hit5", 0.83)
-            self.dmg_make("o_s1_hit6", 0.83)
-            self.s2buff.buff_end_timer.timing += 2.6
-            self.a3.buff_end_timer.timing += 2.6
-
-
     def s1_proc(self, e):
         if self.s2buff.get():
-            self.dmg_make("o_s1_s2boost",12.38-0.825)
-            self.dmg_make("o_s1_hit2", 0.83)
-            self.dmg_make("o_s1_hit3", 0.83)
-            self.dmg_make("o_s1_hit4", 0.83)
+            name = f'o_{e.name}_boost'
+            self.dmg_make(name,12.38-0.825)
+            for _ in range(2, self.s1_hits+1):
+                self.dmg_make(name, 0.83)
+                self.hits += 1
             self.s2buff.buff_end_timer.timing += 2.6
             self.a3.buff_end_timer.timing += 2.6
 
@@ -80,6 +66,5 @@ class Albert(Adv):
 
 
 if __name__ == '__main__':
-    conf = {}
-    adv.adv_test.test(module(), conf)
-
+    from core.simulate import test_with_argv
+    test_with_argv(None, *sys.argv)

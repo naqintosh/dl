@@ -10,14 +10,15 @@ class Veronica(adv.veronica.Veronica):
 
     conf = adv.veronica.Veronica.conf.copy()
     conf['acl'] = """
+        `dragon.act("c3 s end")
         `s3, not self.s3_buff
         `s1
-        `fs, (s1.charged>=s1.sp-self.sp_val('fs'))
     """
 
     def prerun(self):
         super().prerun()
-        self.hp = 0
+        self.set_hp(0)
+        self.a1_buff.on()
 
 if __name__ == '__main__':
     import sys

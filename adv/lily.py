@@ -1,6 +1,6 @@
-import adv.adv_test
 from core.advbase import *
 from slot.a import *
+from slot.d import *
 
 def module():
     return Lily
@@ -10,18 +10,16 @@ class Lily(Adv):
     a3 = ('prep','100%')
 
     conf = {}
-    conf['slot.a'] = CC()+Seaside_Princess()
+    conf['slots.a'] = CC()+Seaside_Princess()
+    conf['slots.d'] = Leviathan()
     conf['acl'] = """
-        `s2, seq=5 and cancel
+        `dragon
+        `s2
         `s1, seq=5 and cancel
-        `s3, seq=5 and cancel
-        `s3, s
-        `s2, pin='prep'
-        """
+        `s3
+    """
+    coab = ['Blade', 'Dagger', 'Tiki']
 
 if __name__ == '__main__':
-    conf = {}
-    adv.adv_test.test(module(), conf)
-
-
-
+    from core.simulate import test_with_argv
+    test_with_argv(None, *sys.argv)

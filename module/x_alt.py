@@ -1,7 +1,8 @@
-from core.advbase import Fs_group, X
+from core.advbase import Fs_group, Fs, X, Event
 from core.timeline import Listener, Timer
 from core.log import log
 from core.config import Conf
+from core.dragonform import DragonForm
 
 class Fs_alt:
     def __init__(self, adv, conf, fs_proc=None):
@@ -13,13 +14,20 @@ class Fs_alt:
         self.a_fs_alt = Fs_group('fs_alt', self.conf_alt)
         self.fs_proc_alt = fs_proc
         self.uses = 0
+        self.has_fsf = False
+        if 'fsf' in conf:
+            self.a_fsf_og = adv.a_fsf
+            self.a_fsf_alt = Fs('fsf', conf.fsf)
+            self.a_fsf_alt.act_event = Event('none')
+            self.has_fsf = True
 
     def fs_proc(self, e):
         if callable(self.fs_proc_alt):
             self.fs_proc_alt(e)
-        self.uses -= 1
-        if self.uses == 0:
-            self.off()
+        if self.uses != -1:
+            self.uses -= 1
+            if self.uses == 0:
+                self.off()
 
     def on(self, uses = 1):
         log('debug', 'fs_alt on', uses)
@@ -27,6 +35,8 @@ class Fs_alt:
         self.adv.a_fs = self.a_fs_alt
         self.adv.conf = self.conf_alt
         self.adv.fs_proc = self.fs_proc
+        if self.has_fsf:
+            self.adv.fsf = self.a_fsf_alt
 
     def off(self):
         log('debug', 'fs_alt off', 0)
@@ -34,6 +44,8 @@ class Fs_alt:
         self.adv.a_fs = self.a_fs_og
         self.adv.conf = self.conf_og
         self.adv.fs_proc = self.fs_proc_og
+        if self.has_fsf:
+            self.adv.fsf = self.a_fsf_og
 
     def get(self):
         return self.uses != 0
@@ -63,6 +75,7 @@ class X_alt:
         self.xmax -= 1
         self.active = False
         self.xstart = None
+        self.zeroed = None
 
     def x_alt(self):
         x_prev = self.adv.action.getprev()
@@ -81,13 +94,20 @@ class X_alt:
     
     def on(self):
         if not self.active:
+            if self.zeroed is not None:
+                self.zeroed[0].index = self.zeroed[1]
+                self.zeroed = None
+
             act = self.a_x_alt[1]
             doing = act._static.doing
             if not doing.idle and doing.status == -1:
-                doing.startup_timer.off()
-                doing._setprev()
-                doing._static.doing = doing.nop
-                act()
+                try:
+                    doing.startup_timer.off()
+                    doing._setprev()
+                    doing._static.doing = doing.nop
+                    act()
+                except:
+                    pass
 
             log('debug', '{} x_alt on'.format(self.name))
             self.active = True
@@ -112,3 +132,7 @@ class X_alt:
                 self.adv.fs = self.fs_og
             if self.no_dodge:
                 self.adv.dodge = self.dodge_og
+
+            doing = self.a_x_alt[1]._static.doing
+            self.zeroed = (doing, doing.index)
+            doing.index = 0

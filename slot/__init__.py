@@ -1,6 +1,7 @@
 import copy
 from core import Conf
 from ability import Ability, ability_dict
+from itertools import islice
 
 class Slot(object):
     att = 0
@@ -19,6 +20,7 @@ class Slot(object):
             self.conf = Conf()
         if not self.a:
             self.a = []
+        self.name = type(self).__name__
 
     def setup(self, c):
         if c.ele == self.ele :
@@ -48,22 +50,36 @@ class Slot(object):
 class CharacterBase(Slot):
     name = 'null'
     stars = 5
-    ex = {}
+    max_coab = 4
+
+    def __init__(self):
+        super().__init__()
+        self.coabs = {}
+
     def setup(self):
         return
 
     def oninit(self, adv):
         Slot.oninit(self, adv)
-        j = self.ex
-        if type(j) == tuple:
-            self.a.append(j)
-        elif type(j) == list:
-            self.a += j
-        elif type(j) == dict:
-            for i in j:
-                self.a.append(j[i])
+        count = 0
+        ex_set = set()
+        coabs = list(islice(self.coabs.items(), self.max_coab))
+        self.coabs = {}
+        for key, coab in coabs:
+            self.coabs[key] = coab
+            chain, ex = coab
+            if ex:
+                ex_set.add(('ex', ex))
+            if chain:
+                self.a.append(tuple(chain))
+            count += 1
+        self.a.extend(ex_set)
 
-
+    def has_ex(self, ex):
+        for _, coab in self.coabs.items():
+            if ex == coab[1]:
+                return True
+        return False
 
 class WeaponBase(Slot):
     stype = 'w'
@@ -71,7 +87,7 @@ class WeaponBase(Slot):
     s3 = Conf()
     ele = [] # or ''
 
-    def setup(self, c):
+    def setup(self, c, adv):
         super(WeaponBase, self).setup(c)
         if type(self.ele) == list:
             for i in self.ele:
@@ -79,16 +95,21 @@ class WeaponBase(Slot):
                     self.onele = 1
                     break
 
-        if self.onele :
+        if self.onele:
             self.att *= 1.5
-            self.conf.s3 = Conf(self.s3)
-        elif 'all' in self.ele :
-            self.conf.s3 = Conf(self.s3)
+            if adv is not None and adv.s3.owner is None:
+                self.conf.s3 = Conf(self.s3)
+        elif 'all' in self.ele:
+            if adv is not None and adv.s3.owner is None:
+                self.conf.s3 = Conf(self.s3)
 
         if self.wt == 'axe':
             self.mod.append(('crit','chance',0.04))
         else :
             self.mod.append(('crit','chance',0.02))
+
+    def s3_proc(self, adv, e):
+        pass
 
 class DragonBase(Slot):
     stype = 'd'
@@ -139,25 +160,26 @@ class DragonBase(Slot):
 
     def oninit(self, adv):
         super().oninit(adv)
+        gauge_iv = min(int(adv.duration/12), 15)
         from core.dragonform import DragonForm
         self.adv = adv
         if 'dragonform' in adv.conf:
             name = type(adv).__name__
             dconf = Conf(self.default_dragonform)
             dconf += adv.conf.dragonform
-            dconf.gauge_iv = int(self.adv.duration/12)
+            dconf.gauge_iv = gauge_iv
             self.adv.dragonform = DragonForm(name, dconf, adv, adv.ds_proc)
         else:
             name = type(self).__name__
             dconf = Conf({**self.default_dragonform, **self.dragonform})
-            dconf.gauge_iv = int(self.adv.duration/12)
+            dconf.gauge_iv = gauge_iv
             self.adv.dragonform = DragonForm(name, dconf, adv, self.ds_proc)
 
 class Amuletempty(object):
     stype = 'a2'
     def oninit(self,adv):
         return
-    def setup(self, c):
+    def setup(self, c, adv):
         return
 
 
@@ -209,9 +231,9 @@ class Slots(object):
         self.d = None
         self.a = None
 
-    def __setup(self):
+    def __setup(self, adv):
         self.c.setup()
-        self.w.setup(self.c)
+        self.w.setup(self.c, adv)
         self.d.setup(self.c)
         self.a.setup(self.c)
 
@@ -219,13 +241,12 @@ class Slots(object):
     def oninit(self, adv):
         tmp = copy.deepcopy(self)
         self.tmp = tmp
-        tmp.__setup()
+        tmp.__setup(adv)
         tmp.c.oninit(adv)
         tmp.w.oninit(adv)
         tmp.d.oninit(adv)
         tmp.a.oninit(adv)
-        a = tmp.c.a + tmp.w.a + tmp.d.a + tmp.a.a
-        self.abilities = a
+        self.abilities = {'c':{}, 'w':{}, 'd':{}, 'a':{}}
         for afrom, alist in [('c', tmp.c.a), ('w', tmp.w.a), ('d', tmp.d.a), ('a', tmp.a.a)]:
             for ab in alist:
                 name = ab[0]
@@ -233,13 +254,13 @@ class Slots(object):
                     acat = name.split('_')[0]
                 else:
                     acat = name
-                ability_dict[acat](*ab).oninit(adv, afrom)
-
+                self.abilities[afrom][name] = ability_dict[acat](*ab)
+                self.abilities[afrom][name].oninit(adv, afrom)
 
     def att(self, forte=None):
         tmp = copy.deepcopy(self)
         self.tmp = tmp
-        tmp.__setup()
+        tmp.__setup(None)
         if not forte:
             return tmp.c.att + tmp.d.att + tmp.w.att + tmp.a.att
         # return tmp.c.att*forte.c(tmp.c.ele,tmp.c.wt) + tmp.d.att*forte.d(tmp.d.ele) + tmp.w.att + tmp.a.att
@@ -248,17 +269,3 @@ class Slots(object):
 import slot.d as d
 import slot.w as w
 import slot.a as a
-
-def main():
-    s = Slots('elisanne')
-    import slot
-    slot.DragonBase = DragonBase
-    #slot.d.base(DragonBase)
-    import slot.d.water
-    import slot.d.flame
-    s.d = slot.d.water.Dragon()
-    s.setup()
-    print(s.d.att)
-
-if __name__ == "__main__":
-    main()

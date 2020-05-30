@@ -1,7 +1,5 @@
-import adv.adv_test
 from core.advbase import *
 from slot.a import *
-from slot.d import *
 from module.x_alt import X_alt
 
 def module():
@@ -207,9 +205,9 @@ fs_conf = {
 
 class Mitsuba(Adv):
     a1 = ('a', 0.20, 'hit15')
+
     conf = fs_conf.copy()
-    conf['slot.a'] = Twinfold_Bonds()+The_Prince_of_Dragonyule()
-    conf['slot.d'] = Siren()
+    conf['slots.a'] = Twinfold_Bonds()+His_Clever_Brother()
     # tc2afsf tc2a- s1
     conf['acl'] = """
         if s1.check() and not self.afflics.frostbite.get()
@@ -221,6 +219,7 @@ class Mitsuba(Adv):
         `s2, x=2
         `fsf, x=2
     """
+    coab = ['Blade','Xander', 'Summer_Estelle']
     conf['afflict_res.frostbite'] = 0
 
     def prerun(self):
@@ -241,7 +240,7 @@ class Mitsuba(Adv):
 
     def queue_stance(self, stance):
         # assume you can swap stance instantly instead of on next auto, to simplify acl
-        if self.stance != stance and self.next_stance != stance:
+        if self.stance != stance and self.next_stance != stance and not self.skill._static.silence:
             log('stance', stance, 'queued')
             self.next_stance = stance
             self.update_stance()
@@ -281,16 +280,15 @@ class Mitsuba(Adv):
     def s1_proc(self, e):
         coef = self.s1_mod[self.stance]
         if self.stance == 'sashimi':
-            self.dmg_make('s1', coef)
             self.hits += 1
-            self.afflics.frostbite('s1',120,0.41)
+            self.afflics.frostbite(e.name,120,0.41)
             for _ in range(7):
-                self.dmg_make('s1', coef)
+                self.dmg_make(e.name, coef)
                 self.hits += 1
         elif self.stance == 'tempura':
-            with Modifier('s1killer', 'frostbite_killer', 'hit', 0.6):
+            with KillerModifier('s1_killer', 'hit', 0.6, ['frostbite']):
                 for _ in range(8):
-                    self.dmg_make('s1', coef)
+                    self.dmg_make(e.name, coef)
                     self.hits += 1
 
     def s2_proc(self, e):
@@ -299,5 +297,5 @@ class Mitsuba(Adv):
         self.inspiration.add(insp, team=True)
 
 if __name__ == '__main__':
-    conf = {}
-    adv.adv_test.test(module(), conf)
+    from core.simulate import test_with_argv
+    test_with_argv(None, *sys.argv)

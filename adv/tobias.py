@@ -39,7 +39,7 @@ sacred_blade_conf = {
     'x1.dmg': 73 / 100.0,
     'x1.sp': 80,
     'x1.startup': 20 / 60.0,
-    'x1.recovery': 28 / 60.0,
+    'x1.recovery': 30 / 60.0,
     'x1.hit': 1,
 
     'x2.dmg': 164 / 100.0,
@@ -73,16 +73,23 @@ class Tobias(Adv):
     a3 = ('k_poison',0.3)
 
     conf = {}
-    conf['slots.a'] = The_Chocolatiers()+A_Dogs_Day()
-    conf['slots.d'] = Ariel()
+    conf['slots.a'] = A_Dogs_Day()+Castle_Cheer_Corps()
+    conf['slots.poison.a'] = conf['slots.a']
+    conf['slots.d'] = Freyja()
     conf['acl'] = """
+        `s4
         `s1
+        `s3
     """
+    coab = ['Bow','Blade','Tiki']
+    share = ['Patia','Summer_Luca']
 
     def init(self):
         self.buff_class = Teambuff if self.condition('buff all team') else Selfbuff
-        del self.slots.c.ex['blade']
-        self.slots.c.ex['tobias'] = ('ex', 'tobias')
+
+    @staticmethod
+    def prerun_skillshare(adv, dst):
+        adv.buff_class = Dummy if adv.slots.c.ele != 'wind' else Teambuff if adv.condition('buff all team') else Selfbuff
 
     def prerun(self):
         self.s2_mode = 0
@@ -90,7 +97,7 @@ class Tobias(Adv):
         self.s2.charge(1)
         self.s2_x_alt = X_alt(self, 'sacred_blade', sacred_blade_conf, x_proc=self.l_sacred_blade_x, no_fs=True, no_dodge=True)
         self.a_s2 = self.s2.ac
-        self.a_s2a = S('s2', Conf({'startup': 0.10, 'recovery': 1.9}))
+        self.a_s2a = S('s2', Conf({'startup': 0.10, 'recovery': 1.91}))
 
     def l_sacred_blade_x(self, e):
         xseq = e.name
@@ -112,7 +119,7 @@ class Tobias(Adv):
         self.s2_x_alt.off()
 
     def s1_proc(self, e):
-        self.buff_class('s1',0.3,15).on()
+        self.buff_class(e.name,0.3,15).on()
 
     def s2_proc(self, e):
         if self.s2_mode == 0:
@@ -122,14 +129,15 @@ class Tobias(Adv):
             Timer(self.s1_autocharge_off).on(7*self.mod('buff'))
             Timer(self.s2_x_alt_off).on(10*self.mod('buff'))
         else:
-            self.dmg_make('s2',1.04)
+            self.dmg_make(e.name,1.04)
             self.hits += 8
-            self.afflics.poison('s2', 120, 0.582)
+            self.afflics.poison(e.name, 120, 0.582)
             self.s2.ac = self.a_s2
             self.s2_x_alt.on()
             self.s1.autocharge_timer.off()
         self.s2.charge(1)
         self.s2_mode = (self.s2_mode + 1) % 2
+
 
 if __name__ == '__main__':
     from core.simulate import test_with_argv

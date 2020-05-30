@@ -1,20 +1,42 @@
 from core.advbase import *
+from slot.a import *
+from slot.d import *
 
 def module():
     return Lathna
 
 class Lathna(Adv):
-    comment = 'no poison'
     a1 = ('k_poison',0.15)
     a3 = ('dt', 0.25)
     
     conf = {}
-    conf['slot.d'] = slot.d.Shinobi()
+    conf['slots.a'] = Resounding_Rendition()+An_Ancient_Oath()
+    conf['slots.d'] = Chthonius()
     conf['acl'] = """
+        `dragon
         `s3, not self.s3_buff
-        `s1a
+        `s1
         `s2, x=5
         """
+    coab = ['Ieyasu','Audric','Forte']
+
+    def d_coabs(self):
+        if self.duration <= 120 and self.duration > 60:
+            self.coab = ['Ieyasu','Yaten','Tiki']
+        if self.duration <= 60:
+            self.coab = ['Ieyasu','Gala_Alex','Tiki']
+        if 'sim_afflict' in self.conf and self.conf.sim_afflict.efficiency > 0:
+            if self.duration > 120:
+                self.coab = ['Ieyasu','Forte','Wand']
+            if self.duration <= 120 and self.duration > 60:
+                self.coab = ['Ieyasu','Forte','Tiki']
+            if self.duration <= 60:
+                self.coab = ['Ieyasu','Yaten','Tiki']
+    
+    def d_slots(self):
+        if self.duration > 120:
+            self.conf['slots.poison.d'] = Shinobi()
+    
     conf['dragonform'] = {
         'act': 'c3 s c3 c3 c2 c2 c2',
 
@@ -36,6 +58,7 @@ class Lathna(Adv):
 
         'dodge.startup': 41 / 60.0, # dodge frames
     }
+
     def ds_proc(self):
         dmg = self.dmg_make('ds', 3.64, 's')
         self.afflics.poison('ds',120,0.291,30,dtype='s')
@@ -47,11 +70,22 @@ class Lathna(Adv):
         Event('dragon').listener(self.a1_on)
         Event('idle').listener(self.a1_off)
 
-        self.a_s1 = self.s1.ac
-        self.a_s1a = S('s1', Conf({'startup': 0.10, 'recovery': 2.00}))
+        a_s1 = self.s1.ac
+        a_s1a = S('s1', Conf({'startup': 0.10, 'recovery': 2.00}))
         def recovery():
-            return self.a_s1a._recovery + self.a_s1.getrecovery()
-        self.a_s1a.getrecovery = recovery
+            return a_s1a._recovery + a_s1.getrecovery()
+        a_s1a.getrecovery = recovery
+        self.s1.ac = a_s1a
+
+    @staticmethod
+    def prerun_skillshare(adv, dst):
+        s = adv.__getattribute__(dst)
+        a_s1 = s.ac
+        a_s1a = S(dst, Conf({'startup': 0.10, 'recovery': 2.00}))
+        def recovery():
+            return a_s1a._recovery + a_s1.getrecovery()
+        a_s1a.getrecovery = recovery
+        s.ac = a_s1a
 
     def a1_on(self, e):
         if not self.faceless_god.get():
@@ -61,28 +95,14 @@ class Lathna(Adv):
         if self.faceless_god.get():
             self.faceless_god.off()
 
-    def s1back(self, t):
-        self.s1.ac = self.a_s1
-
-    def s1a(self):
-        if self.s1.check():
-            with Modifier("s1killer", "poison_killer", "hit", 0.5):
-                self.dmg_make("s1", 2.37*4)
-            self.s1.ac = self.a_s1a
-            Timer(self.s1back).on(self.conf.s1.startup+0.01)
-            self.hits += 4
-            return self.s1()
-        else:
-            return 0
-    
     def s1_proc(self, e):
-        with Modifier("s1killer", "poison_killer", "hit", 0.5):
-            self.dmg_make("s1", 2.37*3)
-            self.hits += 3
+        with KillerModifier('s1_killer', 'hit', 0.5, ['poison']):
+            self.dmg_make(e.name, 2.37*7)
+            self.hits += 7
 
     def s2_proc(self, e):
-        with Modifier("s2killer", "poison_killer", "hit", 0.5):
-            self.dmg_make("s2", 17.26)
+        with KillerModifier('s2_killer', 'hit', 0.5, ['poison']):
+            self.dmg_make(e.name, 17.26)
 
 if __name__ == '__main__':
     from core.simulate import test_with_argv

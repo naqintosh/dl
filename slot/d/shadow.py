@@ -38,7 +38,7 @@ class Marishiten(DragonBase):
     def oninit(self, adv):
         super().oninit(adv)
         from module.bleed import Bleed
-        self.bleed = Bleed('ds_bleed', 1.46).reset()
+        self.bleed = Bleed('ds', 1.46).reset()
 
     def ds_proc(self):
         dmg = self.adv.dmg_make('ds',1.04,'s')
@@ -79,7 +79,7 @@ class Shinobi(DragonBase):
 
 class Fatalis(DragonBase):
     ele = 'shadow'
-    att = 121
+    att = 128
     a = [('a', 0.8)]
     dragonform = {
         'act': 'c3 s',
@@ -106,15 +106,18 @@ class Fatalis(DragonBase):
 
     def oninit(self, adv):
         super().oninit(adv)
+        adv.dragonform.disabled = True
         def permanent_curse(e):
             if hasattr(adv, 'afflict_guard') and adv.afflict_guard > 0:
                 adv.afflict_guard -= 1
             else:
                 adv.skill._static.silence = 1
                 adv.dragonform.disabled = True
+                from core.log import log
                 log('debug', 'permanent_curse')
         from core.timeline import Event
         Event('dragon').listener(permanent_curse)
+
 
 class Nyarlathotep(DragonBase):
     ele = 'shadow'
@@ -158,7 +161,7 @@ class Nyarlathotep(DragonBase):
 class Chthonius(DragonBase):
     ele = 'shadow'
     att = 128
-    a = [('a',0.55)]
+    a = [('a',0.55), ('dm', 1)]
     dragonform = {
         'act': 'c3 s',
 
@@ -180,16 +183,6 @@ class Chthonius(DragonBase):
 
         'dodge.startup': 41 / 60, # dodge frames
     }
-
-    def oninit(self, adv):
-        super().oninit(adv)
-        self.dm_count = 2
-        def dragon_might(t):
-            if self.dm_count > 0:
-                self.dm_count -= 1
-                self.adv.Buff('dc',0.10, -1).on()
-        from core.timeline import Event
-        Event('dragon').listener(dragon_might)
 
     def ds_proc(self):
         dmg = self.adv.dmg_make('ds',4.90,'s')
@@ -227,17 +220,71 @@ class Epimetheus(DragonBase):
         self.adv.afflics.poison('ds',120,0.291,30,dtype='s')
         return dmg
 
-class Unreleased_ShadowSkillHaste(DragonBase):
+
+class Andromeda(DragonBase):
     ele = 'shadow'
-    att = 120
+    att = 128
+    a = [('a', 0.4), ('a', 0.4, 'hp<30')]
+    dragonform = {
+        'act': 'c3 s',
+
+        'dx1.dmg': 1.90,
+        'dx1.startup': 20 / 60.0, # c1 frames
+        'dx1.hit': 1,
+
+        'dx2.dmg': 2.09,
+        'dx2.startup': 44 / 60.0, # c2 frames
+        'dx2.hit': 1,
+
+        'dx3.dmg': 3.24,
+        'dx3.startup': 44 / 60.0, # c3 frames
+        'dx3.recovery': 65 / 60.0, # recovery
+        'dx3.hit': 3,
+
+        'ds.recovery': 110 / 60, # skill frames
+        'ds.hit': 1,
+
+        'dodge.startup': 33 / 60, # dodge frames
+    }
+
+    def ds_proc(self):
+        from core.advbase import Teambuff
+        dmg = self.adv.dmg_make('ds',6.60,'s')
+        Teambuff('ds', 0.30, 15, 'defense').on()
+        return dmg
+
+
+class Azazel(DragonBase):
+    ele = 'shadow'
+    att = 128
     a = [('sp', 0.35)]
+    dragonform = {
+        'act': 'c3 s',
+
+        'dx1.dmg': 1.90,
+        'dx1.startup': 12 / 60.0, # c1 frames
+        'dx1.hit': 1,
+
+        'dx2.dmg': 2.09,
+        'dx2.startup': 36 / 60.0, # c2 frames
+        'dx2.hit': 1,
+
+        'dx3.dmg': 3.24,
+        'dx3.startup': 39 / 60.0, # c3 frames
+        'dx3.recovery': 56 / 60.0, # recovery
+        'dx3.hit': 3,
+
+        'ds.recovery': 130 / 60, # skill frames, need confirm
+        'ds.hit': 1,
+    }
+
+    def ds_proc(self):
+        from core.advbase import Teambuff
+        dmg = self.adv.dmg_make('ds',5.00,'s')
+        Teambuff('ds', 0.15, 40, 'poison_killer', 'passive').on()
+        return dmg
 
 class Unreleased_ShadowPrimedStr(DragonBase):
     ele = 'shadow'
     att = 127
     a = [('primed_att', 0.15), ('a', 0.45)]
-
-class Unreleased_DKR_No_More(DragonBase):
-    ele = 'shadow'
-    att = 127
-    a = [('a', 0.55), ('fs', 0.60), ('sp',0.30,'fs')]

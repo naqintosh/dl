@@ -4,16 +4,17 @@ import random
 from functools import reduce
 from itertools import product
 
-from ability import Ability, Overdrive_Punisher
+from ability import Ability
 from core import *
 from core.timeline import *
 from core.log import *
 from core.afflic import *
+from core.dummy import Dummy
 import core.acl
 import conf as globalconf
 import slot
-import core.floatsingle as floatsingle
-
+from ctypes import c_float
+from math import ceil
 # import core.condition
 # m_condition = core.condition
 from core.condition import Condition
@@ -72,6 +73,8 @@ class Modifier(object):
 
     def get(self):
         if callable(self.mod_get) and not self.mod_get():
+            return 0
+        if self.mod_condition is not None and not self._static.g_condition(self.mod_condition):
             return 0
         return self.mod_value
 
@@ -145,12 +148,10 @@ class CrisisModifier(Modifier):
         super().__init__('mod_{}_crisis'.format(name), 'att', 'hit', 0)
         self.hp_scale = scale
         self.hp_lost = 100 - hp
-        if hp == 0:
-            self.hp_cond = self._static.g_condition('hp=1')
-        elif hp < 100:
-            self.hp_cond = self._static.g_condition('hp={}%'.format(hp))
+        if hp < 100:
+            self.hp_cond = self._static.g_condition.hp_cond_set(hp)
         else:
-            self.hp_cond = 0
+            self.hp_cond = False
 
     def get(self):
         if self.hp_cond:
@@ -163,7 +164,8 @@ class CrisisModifier(Modifier):
 class Buff(object):
     _static = Static({
         'all_buffs': [],
-        'time_func': 0
+        'bufftime': lambda: 1,
+        'debufftime': lambda: 1
     })
 
     def __init__(self, name='<buff_noname>', value=0, duration=0, mtype=None, morder=None):
@@ -180,10 +182,7 @@ class Buff(object):
         else:
             self.mod_order = morder or '<null>' or 'passive' or 'ex' or 'buff' or 'punisher'  # ...
 
-        if self.mod_order != 'buff':
-            self.bufftime = self.nobufftime
-        if not self._static.time_func:
-            self._static.time_func = self.nobufftime
+        self.bufftime = self._bufftime
 
         self.buff_end_timer = Timer(self.buff_end_proc)
         self.modifier = Modifier('mod_' + self.name, self.mod_type, self.mod_order, 0)
@@ -196,11 +195,14 @@ class Buff(object):
         self.__active = 0
         # self.on()
 
-    def nobufftime(self):
+    def _no_bufftime(self):
         return 1
 
-    def bufftime(self):
-        return self._static.time_func()
+    def _bufftime(self):
+        return self._static.bufftime()
+
+    def _debufftime(self):
+        return self._static.debufftime()
 
     def value(self, newvalue=None):
         if newvalue:
@@ -257,6 +259,45 @@ class Buff(object):
             log('buff', self.name, '%s: %.2f' % (self.mod_type, value), self.name + ' buff stack <%d>' % stack)
         self.modifier.off()
 
+    def count_team_buff(self):
+        self.dmg_test_event.modifiers = ModifierDict()
+
+        base_mods = [
+            Modifier('base_cc', 'crit', 'chance', 0.12),
+            Modifier('base_killer', 'killer','passive', 0.50)
+        ]
+
+        for mod in base_mods:
+            self.dmg_test_event.modifiers.append(mod)
+
+        for i in self._static.all_buffs:
+            if i.name == 'simulated_def':
+                self.dmg_test_event.modifiers.append(i.modifier)
+        self.dmg_test_event()
+        no_team_buff_dmg = self.dmg_test_event.dmg
+        sd_mods = 1
+        spd = 0
+        for i in self._static.all_buffs:
+            if i.bufftype == 'team' or i.bufftype == 'debuff':
+                if i.modifier.mod_type == 's':
+                    sd_mods += i.get() * 1 / 2
+                elif i.modifier.mod_type == 'spd':
+                    spd += i.get()
+                else:
+                    if i.modifier.mod_type.endswith('_killer'):
+                        mod_copy = copy.copy(i.modifier)
+                        mod_copy.mod_type = 'killer'
+                        self.dmg_test_event.modifiers.append(i.modifier)
+                    else:
+                        self.dmg_test_event.modifiers.append(i.modifier)
+        self.dmg_test_event()
+        team_buff_dmg = self.dmg_test_event.dmg * sd_mods
+        team_buff_dmg += team_buff_dmg * spd
+        log('buff', 'team', team_buff_dmg / no_team_buff_dmg - 1)
+
+        for mod in base_mods:
+            mod.off()
+
     def on(self, duration=None):
         if duration == None:
             d = self.duration * self.bufftime()
@@ -300,10 +341,6 @@ class Selfbuff(Buff):
     def __init__(self, name='<buff_noname>', value=0, duration=0, mtype=None, morder=None):
         Buff.__init__(self, name, value, duration, mtype, morder)
         self.bufftype = 'self'
-        self.bufftime = self._bufftime
-
-    def _bufftime(self):
-        return self._static.time_func()
 
     def buffcount(self):
         bc = 0
@@ -331,7 +368,7 @@ class SingleActionBuff(Buff):
         return super().on(-1)
 
     def l_off(self, e):
-        if e.name in self.modifier._static.damage_sources:
+        if e.name in self.modifier._static.damage_sources or (hasattr(e, 'damage') and e.damage):
             self.casts -= 1
             if self.casts <= 0:
                 return super().off()
@@ -343,15 +380,11 @@ class Teambuff(Buff):
     def __init__(self, name='<buff_noname>', value=0, duration=0, mtype=None, morder=None):
         Buff.__init__(self, name, value, duration, mtype, morder)
         self.bufftype = 'team'
-        self.bufftime = self._bufftime
 
         self.base_cc_mod = []
         for mod in self.modifier._static.all_modifiers['crit']['chance']:
             if mod.mod_name.startswith('w_') or mod.mod_name.startswith('c_ex'):
                 self.base_cc_mod.append(mod)
-
-    def _bufftime(self):
-        return self._static.time_func()
 
     def on(self, duration=None):
         Buff.on(self, duration)
@@ -366,27 +399,6 @@ class Teambuff(Buff):
     def buff_end_proc(self, e):
         Buff.buff_end_proc(self, e)
         self.count_team_buff()
-
-    def count_team_buff(self):
-        self.dmg_test_event.modifiers = ModifierDict()
-        for mod in self.base_cc_mod:
-            self.dmg_test_event.modifiers.append(mod)
-        for i in self._static.all_buffs:
-            if i.name == 'simulated_def':
-                self.dmg_test_event.modifiers.append(i.modifier)
-        self.dmg_test_event()
-        no_team_buff_dmg = self.dmg_test_event.dmg
-        sd_mods = 1
-        for i in self._static.all_buffs:
-            if i.bufftype == 'team' or i.bufftype == 'debuff':
-                if i.modifier.mod_type == 's':
-                    sd_mods = 1 + i.get() * 1 / 2
-                else:
-                    self.dmg_test_event.modifiers.append(i.modifier)
-        self.dmg_test_event()
-        team_buff_dmg = self.dmg_test_event.dmg * sd_mods
-        log('buff', 'team', team_buff_dmg / no_team_buff_dmg - 1)
-
 
 class Spdbuff(Buff):
     def __init__(self, name='<buff_noname>', value=0, duration=0, mtype=None, morder=None, wide='self'):
@@ -394,11 +406,7 @@ class Spdbuff(Buff):
         morder = 'passive'
         Buff.__init__(self, name, value, duration, mtype, morder)
         self.bufftype = wide
-        self.bufftime = self._bufftime
         Event('speed')()
-
-    def _bufftime(self):
-        return self._static.time_func()
 
     def on(self, duration=None):
         Buff.on(self, duration)
@@ -414,49 +422,21 @@ class Spdbuff(Buff):
 
     def buff_end_proc(self, e):
         Buff.buff_end_proc(self, e)
-        self.count_team_buff()
-
-    def count_team_buff(self):
-        self.dmg_test_event.modifiers = ModifierDict()
-        for i in self._static.all_buffs:
-            if i.name == 'simulated_def':
-                self.dmg_test_event.modifiers.append(i.modifier)
-        self.dmg_test_event()
-        no_team_buff_dmg = self.dmg_test_event.dmg
-        sd_mods = 1
-        for i in self._static.all_buffs:
-            if i.bufftype == 'team' or i.bufftype == 'debuff':
-                if i.modifier.mod_type == 's':
-                    sd_mods = 1 + i.get() * 1 / 2
-                else:
-                    self.dmg_test_event.modifiers.append(i.modifier)
-        self.dmg_test_event()
-        team_buff_dmg = self.dmg_test_event.dmg * sd_mods
-        spd = self.stack() * self.value()
-        if self.bufftype == 'team' or self.bufftype == 'debuff':
-            team_buff_dmg += team_buff_dmg * spd
-        log('buff', 'team', team_buff_dmg / no_team_buff_dmg - 1)
-
+        if self.bufftype == 'team':
+            self.count_team_buff()
 
 class Debuff(Teambuff):
-    def __init__(self, name='<buff_noname>', value=0, duration=0, chance='1', mtype='def', morder=None):
-        value = 0 - value
-        chance = float(chance)
-        if chance != 1:
-            bd = 1.0 / (1.0 + value)
-            bd = (bd - 1) * chance + 1
-            value = 1 - 1.0 / bd
-            value = 0 - value
-        Teambuff.__init__(self, name, value, duration, mtype, morder)
+    def __init__(self, name='<buff_noname>', value=0, duration=0, chance=1.0, mtype='def', morder=None):
+        self.val = 0 - value
+        self.chance = chance
+        if self.chance != 1:
+            bd = 1.0 / (1.0 + self.val)
+            bd = (bd - 1) * self.chance + 1
+            self.val = 1 - 1.0 / bd
+            self.val = 0 - self.val
+        Teambuff.__init__(self, name, self.val, duration, mtype, morder)
         self.bufftype = 'debuff'
-        self.bufftime = self.nobufftime
-
-    def chance(c):
-        bd = 1.0 / (1.0 + self.value)
-        bd = (bd - 1) * c + 1
-        self.value = 1 - 1.0 / bd
-        return self
-
+        self.bufftime = self._debufftime
 
 class Skill(object):
     _static = Static({
@@ -468,6 +448,7 @@ class Skill(object):
     sp = 0
     silence_duration = 1.9
     name = '_Skill'
+    owner = None # indicates self/weapon skill
 
     def __init__(self, name=None, conf=None, ac=None):
         self.charged = 0
@@ -525,7 +506,7 @@ class Skill(object):
         else:
             if not self.ac():
                 return 0
-            self.charged = 0
+            self.charged -= self.sp
             self._static.s_prev = self.name
             # Even if animation is shorter than 1.9, you can't cast next skill before 1.9
             self.silence_end_timer.on(self.silence_duration)
@@ -868,6 +849,9 @@ class Adv(object):
         pass
 
     def s3_proc(self, e):
+        self.slots.w.s3_proc(self, e)
+
+    def s4_proc(self, e):
         pass
 
     def x_proc(self, e):
@@ -888,6 +872,9 @@ class Adv(object):
     def s3_before(self, e):
         pass
 
+    def s4_before(self, e):
+        pass
+
     def x_before(self, e):
         pass
 
@@ -903,10 +890,7 @@ class Adv(object):
     def init(self):
         pass
 
-    def equip(self):
-        pass
-
-    def setup(self):
+    def d_coabs(self):
         pass
 
     def d_acl(self):
@@ -924,6 +908,10 @@ class Adv(object):
     def prerun(self):
         pass
 
+    @staticmethod
+    def prerun_skillshare(adv, dst):
+        pass
+
     # ^^^^^^^^^ rewrite these to provide advanced tweak ^^^^^^^^^^
 
     comment = ''
@@ -933,6 +921,8 @@ class Adv(object):
     a1 = None
     a2 = None
     a3 = None
+    coab = []
+    share = []
 
     conf_default = Conf()
 
@@ -950,6 +940,7 @@ class Adv(object):
     conf_default.s1 = Conf({'dmg': 0, 'sp': 0, 'startup': 0.1, 'recovery': 1.9})
     conf_default.s2 = Conf({'dmg': 0, 'sp': 0, 'startup': 0.1, 'recovery': 1.9})
     conf_default.s3 = Conf({'dmg': 0, 'sp': 0, 'startup': 0.1, 'recovery': 1.9})
+    conf_default.s4 = Conf({'dmg': 0, 'sp': 0, 'startup': 0.1, 'recovery': 1.9})
     conf_default.dodge = Conf({'startup': 0, 'recovery': 43.0 / 60.0})
     conf_default.fsf = Conf({'startup': 0, 'recovery': 41.0 / 60.0})
     # conf_default.slots = Conf({'w':None,'d':None,'a':None})
@@ -1011,15 +1002,13 @@ class Adv(object):
         self.buff = Buff()
         self.all_buffs = []
         self.buff._static.all_buffs = self.all_buffs
-        self.buff._static.time_func = self.bufftime
+        self.buff._static.bufftime = lambda: self.mod('buff')
+        self.buff._static.debufftime = lambda: self.mod('debuff')
         # set modifier
         self.modifier = Modifier(0, 0, 0, 0)
         self.all_modifiers = ModifierDict()
         self.modifier._static.all_modifiers = self.all_modifiers
         self.modifier._static.g_condition = self.condition
-
-        # set ex
-        self.ex = self.slots.c.ex
 
         # init actions
         # self.a_fs
@@ -1050,6 +1039,7 @@ class Adv(object):
         self.s1 = Skill('s1', self.conf.s1)
         self.s2 = Skill('s2', self.conf.s2)
         self.s3 = Skill('s3', self.conf.s3)
+        self.s4 = Skill('s4', self.conf.s4)
 
         if self.conf.xtype == 'ranged':
             self.l_x = self.l_range_x
@@ -1069,14 +1059,37 @@ class Adv(object):
         # self.fs = self.a_fs
         self.fsf = self.a_fsf
         self.dodge = self.a_dodge
+        try:
+            self.a_x5ex = X(('x5ex', 5), self.conf.x5ex)
+            self.a_x5ex.atype = 'x'
+            self.a_x5ex.interrupt_by = ['fs', 's', 'dodge']
+            self.a_x5ex.cancel_by = ['fs', 's', 'dodge']
+            self.x4.cancel_by.append('x')
+            self.x5ex = self.a_x5ex
+        except:
+            pass
 
         self.hits = 0
+        self.hp = 100
+        self.hp_event = Event('hp')
         self.dragonform = None
 
         from module.tension import Energy, Inspiration
         self.energy = Energy()
         self.inspiration = Inspiration()
         self.tension = [self.energy, self.inspiration]
+
+    def set_hp(self, hp):
+        old_hp = self.hp
+        self.hp = max(min(hp, 100), 0)
+        if self.hp != old_hp:
+            if self.hp == 0:
+                log('hp', f'{self.hp/100:.0%}', f'{(self.hp-old_hp)/100:.0%}')
+            else:
+                log('hp', f'{self.hp/100:.0%}', f'{(self.hp-old_hp)/100:.0%}')
+            self.condition.hp_cond_set(self.hp)
+            self.hp_event.hp = self.hp
+            self.hp_event()
 
     def afflic_condition(self):
         if 'afflict_res' in self.conf:
@@ -1089,13 +1102,9 @@ class Adv(object):
                         vars(self.afflics)[afflic].resist = 100
 
     def sim_affliction(self):
-        if 'sim_afflict' in self.conf:
-            t = int(self.conf.sim_afflict.time)
-            if t > 0:
-                # if self.condition('{} for {}s'.format(self.conf.sim_afflict.type, t)):
-                aff = vars(self.afflics)[self.conf.sim_afflict.type]
-                aff.on('simulated'.format(self.conf.sim_afflict.type), 200, 0, duration=t * self.duration, iv=t)
-                aff.states = None
+        if 'sim_afflict' in self.conf and self.conf.sim_afflict.efficiency > 0:
+            aff = vars(self.afflics)[self.conf.sim_afflict.type]
+            aff.get_override = min(self.conf.sim_afflict.efficiency, 1)
 
     def sim_buffbot(self):
         if 'sim_buffbot' in self.conf:
@@ -1108,32 +1117,36 @@ class Adv(object):
                 if self.condition('team str {:+.0%}'.format(self.conf.sim_buffbot.buff)):
                     self.Selfbuff('simulated_att', self.conf.sim_buffbot.buff, -1).on()
 
-    def sync_slot(self, conf_slots):
+    def sync_slot(self, conf):
         # self.cmnslots(conf)
         # self.slots = slot.Slots()
         if now():
-            print('cannot change slots after run')
-            errrrrrrrrrrrr()
-        if 'c' in conf_slots:
-            self.slots.c = conf_slots.c
-        elif not self.slots.c:
-            self.slots.c = self.cmnslots.c
+            raise RuntimeError('cannot change slots after run')
+        if 'slots' not in conf:
+            return
+        conf_slots = conf.slots
 
-        if 'd' in conf_slots:
-            self.slots.d = conf_slots.d
-        elif not self.slots.d:
-            self.slots.d = self.cmnslots.d
+        for s in ('c', 'd', 'w', 'a'):
+            if s in conf_slots:
+                self.slots.__dict__[s] = conf_slots[s]
+            else:
+                self.slots.__dict__[s] = self.cmnslots.__dict__[s]
 
-        if 'w' in conf_slots:
-            self.slots.w = conf_slots.w
-        elif not self.slots.w:
-            self.slots.w = self.cmnslots.w
+        if 'forced' in conf_slots and conf_slots.forced:
+            return
 
-        if 'a' in conf_slots:
-            self.slots.a = conf_slots.a
-        elif not self.slots.a:
-            self.slots.a = self.cmnslots.a
-        # print self.slots
+        from conf.slot_common import ele_punisher
+        if 'sim_afflict' in self.conf and self.conf.sim_afflict.efficiency > 0:
+            aff, wpa = ele_punisher[self.slots.c.ele]
+            wp1 = self.slots.a.__class__
+            wp2 = wpa
+            if wp1 != wp2:
+                self.slots.a = wp1()+wp2()
+            if aff in self.conf.slots:
+                afflic_slots = self.conf.slots[self.conf.sim_afflict.type]
+                for s in ('d', 'w', 'a'):
+                    if s in afflic_slots:
+                        self.slots.__dict__[s] = afflic_slots[s]
 
     def pre_conf(self):
         tmpconf = Conf()
@@ -1150,6 +1163,7 @@ class Adv(object):
         self.cmnslots.c.wt = self.conf.c.wt
         self.cmnslots.c.stars = self.conf.c.stars
         self.cmnslots.c.ele = self.conf.c.ele
+        self.cmnslots.c.name = self.name
         self.slot_common = slot_common.set
         self.slot_common(self.cmnslots)
         self.slots = self.cmnslots
@@ -1175,7 +1189,8 @@ class Adv(object):
         self.s3_buff_list = []
         self.s3_buff = None
 
-        self.damage_sources = set()
+        self.damage_sources = {'s'}
+        self.phase = {}
         self.Modifier._static.damage_sources = self.damage_sources
 
         if not self.conf:
@@ -1189,8 +1204,7 @@ class Adv(object):
         #     pass
         # self.slot_backdoor = slot_backdoor
 
-        self.conf.slot.sync_slot = self.sync_slot
-        self.conf.slots.sync_slot = self.sync_slot
+        self.conf.sync_slot = self.sync_slot
 
         if 1:
             self.crit_mod = self.solid_crit_mod
@@ -1220,11 +1234,16 @@ class Adv(object):
             scope = scope[1]
         else:
             scope = scope[0]
-        
+
         for t in self.tension:
             t.check(scope)
 
         if scope[0] == 's':
+            try:
+                # need to consider mystery afflict mod later
+                mod = 1 if self.__getattribute__(scope).owner is None else self.skill_share_att
+            except:
+                pass
             return mod * self.mod('s')
         elif scope[0:2] == 'fs':
             return mod * self.mod('fs')
@@ -1257,9 +1276,7 @@ class Adv(object):
                     m[order] += modifier.get()
                 else:
                     raise ValueError(f"Invalid crit mod order {order}")
-        chance = m['chance'] + m['passive'] + m['rate']
-        if chance > 1:
-            chance = 1
+        chance = min(m['chance'] + m['passive'] + m['rate'], 1)
         cdmg = m['dmg'] + m['damage'] + 1.7
         average = chance * (cdmg - 1) + 1
         return average
@@ -1289,14 +1306,26 @@ class Adv(object):
         return cc * att * k
 
     def killer_mod(self, name=None):
-        rates = {
-            'overdrive': Overdrive_Punisher.EFFICIENCY
-        }
+        total = self.mod('killer') - 1
+
+        rates = {}
         for afflic in AFFLICT_LIST:
             rate = vars(self.afflics)[afflic].get()
             if rate > 0:
                 rates[afflic] = rate
-        total = 0
+
+        for buff in self.all_buffs:
+            debuff_rates = {}
+            if buff.get() and buff.bufftype == 'debuff' and buff.val < 0:
+                dkey = f'debuff_{buff.mod_type}'
+                try:
+                    debuff_rates[dkey] *= (1 - buff.chance)
+                except:
+                    debuff_rates[dkey] = 1 - buff.chance
+            for dkey in debuff_rates.keys():
+                debuff_rates[dkey] = 1 - debuff_rates[dkey]
+            rates.update(debuff_rates)
+
         rate_list = list(rates.items())
         for mask in product(*[[0, 1]] * len(rate_list)):
             p = 1.0
@@ -1312,8 +1341,7 @@ class Adv(object):
                             modifiers[order].add(mod)
                 else:
                     p *= 1 - cond_p
-            total += p * reduce(operator.mul, [1 + sum([mod.get() for mod in order]) for order in modifiers.values()],
-                                1.0)
+            total += p * reduce(operator.mul, [1 + sum([mod.get() for mod in order]) for order in modifiers.values()], 1.0)
         return total
 
     def def_mod(self):
@@ -1335,20 +1363,19 @@ class Adv(object):
 
     def sp_val(self, param):
         if isinstance(param, str):
-            return self.ceiling(self.float_problem(self.conf[param + '.sp'] * self.float_problem(self.sp_mod(param))))
-        elif isinstance(param, int) and 1 <= param <= 5:
-            return sum([self.ceiling(
-                self.float_problem(self.conf['x{}.sp'.format(x)] * self.float_problem(self.sp_mod('x{}'.format(x)))))
-                for x in range(1, param + 1)])
-
-    def bufftime(self):
-        return self.mod('buff')
+            return self.sp_convert(self.sp_mod(param), self.conf[param + '.sp'])
+        elif isinstance(param, int) and 0 < param:
+            return sum([self.sp_convert(self.sp_mod('x{}'.format(x)), self.conf['x{}.sp'.format(x)]) for x in range(1, param + 1)])
 
     def have_buff(self, name):
         for b in self.all_buffs:
             if b.name.startswith(name) and b.get():
                 return True
         return False
+
+    @property
+    def is_sim_afflict(self):
+        return 'sim_afflict' in self.conf and self.conf.sim_afflict.efficiency == 1
 
     def l_idle(self, e):
         """
@@ -1385,8 +1412,7 @@ class Adv(object):
         if prev.name[0] == 'x':
             if prev.index != 5:
                 x_next = prev.index + 1
-
-        a = getattr(self, 'x%d' % x_next)()
+        getattr(self, 'x%d' % x_next)()
         return 1
 
     def l_range_x(self, e):
@@ -1448,6 +1474,108 @@ class Adv(object):
         except AttributeError:
             pass
 
+    def config_coabs(self):
+        self.d_coabs()
+        self.coab_list = self.coab.copy()
+        if 'coabs' in self.conf:
+            self.coab_list = self.conf['coabs']
+        from conf import coability_dict
+        try:
+            self_coab = list(self.slots.c.coabs.keys())[0]
+        except:
+            self_coab = self.__class__.__name__
+        for name in self.coab_list:
+            try:
+                self.slots.c.coabs[name] = coability_dict(self.slots.c.ele)[name]
+            except:
+                pass
+        self.coab_list = list(self.slots.c.coabs.keys())
+        try:
+            self.coab_list.remove(self_coab)
+        except:
+            pass
+
+    def rebind_function(self, owner, src, dst=None):
+        dst = dst or src
+        self.__setattr__(dst, getattr(owner, src).__get__(self, self.__class__))
+
+    @property
+    def skills(self):
+        return self.s1, self.s2, self.s3, self.s4
+
+    def config_skillshare(self):
+        preruns = {}
+        if 'skill_share' in self.conf:
+            self.skillshare_list = self.conf['skill_share'].copy()
+        else:
+            self.skillshare_list = self.share.copy()
+        try:
+            self.skillshare_list.remove(self.__class__.__name__)
+        except:
+            pass
+        if len(self.skillshare_list) < 2:
+            self.skillshare_list.insert(0, 'Weapon')
+        if len(self.skillshare_list) > 2:
+            self.skillshare_list = self.skillshare_list[:2]
+        from conf import advconfs, skillshare
+        from core.simulate import load_adv_module
+        share_limit = 10
+        sp_modifier = 1
+        self.skill_share_att = 0.7
+        try:
+            self_data = skillshare[self.__class__.__name__]
+            try:
+                share_limit = self_data['limit']
+            except KeyError:
+                pass
+            try:
+                sp_modifier = self_data['mod_sp']
+            except KeyError:
+                pass
+            try:
+                self.skill_share_att = self_data['mod_att']
+            except KeyError:
+                pass
+        except KeyError:
+            pass
+        share_costs = 0
+        for idx, owner in enumerate(self.skillshare_list):
+            dst_key = f's{idx+3}'
+            if owner != 'Weapon':
+                # I am going to spaget hell for this
+                sdata = skillshare[owner]
+                try:
+                    share_costs += sdata['cost']
+                except KeyError:
+                    # not allowed to share skill
+                    continue
+                if share_limit < share_costs:
+                    raise ValueError(f'Skill share exceed cost {(*self.skillshare_list, share_costs)}.')
+                src_key = f's{sdata["s"]}'
+                shared_sp = self.sp_convert(sdata['sp'], sp_modifier)
+                try:
+                    owner_conf = Conf(advconfs[owner])
+                    owner_conf[src_key].sp = shared_sp
+                    self.conf[dst_key] = Conf(owner_conf[src_key])
+                    s = Skill(dst_key, owner_conf[src_key])
+                    s.owner = owner
+                    self.__setattr__(dst_key, s)
+                    owner_module = load_adv_module(owner)
+                    preruns[dst_key] = owner_module.prerun_skillshare
+                    self.rebind_function(owner_module, f'{src_key}_proc', f'{dst_key}_proc')
+                except:
+                    # placeholder for healer skill share
+                    default_skill = Conf({
+                        'dmg': 0,
+                        'hit': 0,
+                        'recovery': 1.8,
+                        'sp': shared_sp,
+                        'startup': 0.1
+                    })
+                    self.conf[dst_key] = default_skill
+                    self.__setattr__(dst_key, Skill(dst_key, default_skill))
+        return preruns
+
     def run(self, d=300):
         self.duration = d
         global loglevel
@@ -1487,26 +1615,30 @@ class Adv(object):
                     self.slots.c.a.extend(ab)
                 else:
                     self.slots.c.a.append(ab)
-        if 'ex' in self.conf:
-            self.slots.c.ex.update(dict(self.conf.ex.__dict__))
 
-        self.equip()
-        self.setup()
+        self.config_coabs()
+        preruns_ss = self.config_skillshare()
 
-        self.d_slots()
-        self.slot_backdoor()
-        # print self.slots
-        self.base_att = int(self.slots.att(globalconf.forte))
-        self.slots.oninit(self)
+        if not ('forced' in self.conf.slots and self.conf.slots.forced):
+            self.d_slots()
+        self.base_att = 0
 
-        self.prerun()
         self.afflic_condition()
         self.sim_affliction()
         self.sim_buffbot()
 
+        self.slot_backdoor()
+        self.base_att = int(self.slots.att(globalconf.halidom))
+        self.slots.oninit(self)
+
+        for dst_key, prerun in preruns_ss.items():
+            prerun(self, dst_key)
+        self.prerun()
+
         self.d_acl()
         self.acl_backdoor()
 
+        self.acl_queue = []
         if not self._acl:
             self._acl_str, self._acl = core.acl.acl_func_str(self.conf.acl)
 
@@ -1587,38 +1719,38 @@ class Adv(object):
         # if doing.name[0] == 's':
         #   no_deed_to_do_anythin
 
-    # implement single float of c in python
-    def float_problem(self, a):
-        return floatsingle.tofloat(a)
+    # DL uses C floats and round SP up, which leads to precision issues
+    @staticmethod
+    def sp_convert(haste, sp):
+        sp_hasted = c_float(c_float(haste).value * sp).value
+        sp_int = int(sp_hasted)
+        return sp_int if sp_int == sp_hasted else sp_int + 1
 
-    # self ceiling is the true ceiling
-    def ceiling(self, a):
-        b = int(a)
-        if b == a:
-            return b
+    def charge_p(self, name, percent, target=None):
+        percent = percent / 100 if percent > 1 else percent
+        if not target:
+            for s in self.skills:
+                s.charge(self.sp_convert(percent, s.sp))
         else:
-            return b + 1
+            try:
+                skill = self.__dict__[target]
+                if hasattr(skill, 'autocharge_timer'):
+                    return
+                skill.charge(self.sp_convert(percent, skill.sp))
+            except:
+                return
+        log('sp', name, f'{percent*100:.0f}%', ', '.join([f'{s.charged}/{s.sp}' for s in self.skills]))
 
-    def charge_p(self, name, sp):
-        percent = sp
-        self.s1.charge(self.ceiling(self.conf.s1.sp * percent))
-        self.s2.charge(self.ceiling(self.conf.s2.sp * percent))
-        self.s3.charge(self.ceiling(self.conf.s3.sp * percent))
-        log('sp', name, '{:.0f}%   '.format(percent * 100), '%d/%d, %d/%d, %d/%d' % ( \
-            self.s1.charged, self.s1.sp, self.s2.charged, self.s2.sp, self.s3.charged, self.s3.sp))
-        self.think_pin('prep')
+        if percent == 1:
+            self.think_pin('prep')
 
     def charge(self, name, sp):
         # sp should be integer
-        sp = int(sp) * self.float_problem(self.sp_mod(name))
-        sp = self.float_problem(sp)
-        sp = self.ceiling(sp)
-        self.s1.charge(sp)
-        self.s2.charge(sp)
-        self.s3.charge(sp)
+        sp = self.sp_convert(self.sp_mod(name), sp)
+        for s in self.skills:
+            s.charge(sp)
         self.think_pin('sp')
-        log('sp', name, sp, '%d/%d, %d/%d, %d/%d' % ( \
-            self.s1.charged, self.s1.sp, self.s2.charged, self.s2.sp, self.s3.charged, self.s3.sp))
+        log('sp', name, sp, ', '.join([f'{s.charged}/{s.sp}' for s in self.skills]))
 
     def l_dmg_formula(self, e):
         name = e.dname
@@ -1634,11 +1766,13 @@ class Adv(object):
         return
 
     def dmg_formula(self, name, dmg_coef):
+        dmg_mod = self.dmg_mod(name)
         att = 1.0 * self.att_mod(name) * self.base_att
         armor = 10 * self.def_mod()
+        ele = self.mod(self.slots.c.ele) + 0.5
         # return float(dmg_coef) * self.dmg_mod(name) * self.att_mod() / self.def_mod()
         # return float(dmg_coef) * self.dmg_mod(name) * self.def_mod()
-        return 5.0 / 3 * dmg_coef * self.dmg_mod(name) * att / armor * 1.5  # true formula
+        return 5.0 / 3 * dmg_coef * dmg_mod * att / armor * ele  # true formula
         # return att/armor * dmg_coef * self.dmg_mod(name)
 
     def l_true_dmg(self, e):
@@ -1658,30 +1792,6 @@ class Adv(object):
         log('dmg', name, count)
         self.dmg_proc(name, count)
         return count
-
-    def dmg_make_withspshow(self, name, dmg_coef, dtype=None):
-        if dtype == None:
-            dtype = name
-
-        count = self.dmg_formula(dtype, dmg_coef)
-        self.dmg_before(name, count)
-
-        if name[0] == 'x':
-            spgain = self.conf[name[:2] + '.sp']
-            log('dmg', name, count, '%d/%d, %d/%d, %d/%d (+%d)' % ( \
-                self.s1.charged, self.s1.sp, self.s2.charged, self.s2.sp, self.s3.charged, self.s3.sp, spgain))
-        elif name[:2] == 'fs':
-            spgain = self.conf['fs.sp']
-            log('dmg', name, count, '%d/%d, %d/%d, %d/%d (+%d)' % ( \
-                self.s1.charged, self.s1.sp, self.s2.charged, self.s2.sp, self.s3.charged, self.s3.sp, spgain))
-        else:
-            spgain = 0
-            if name[:2] + '.sp' in self.conf:
-                spgain = self.conf[name[:2] + '.sp']
-            log('dmg', name, count, '%d/%d, %d/%d, %d/%d (-%d)' % ( \
-                self.s1.charged, self.s1.sp, self.s2.charged, self.s2.sp, self.s3.charged, self.s3.sp, spgain))
-
-        self.dmg_proc(name, count)
 
     def l_melee_fs(self, e):
         log('cast', 'fs')
@@ -1714,16 +1824,8 @@ class Adv(object):
 
         self.update_hits(e.name)
 
-        prev, index, stat = self.getprev()
-        if prev == 'fs':
-            log('cast', e.name, 0, '<cast> %d/%d, %d/%d, %d/%d (%s after fs)' % ( \
-                self.s1.charged, self.s1.sp, self.s2.charged, self.s2.sp, self.s3.charged, self.s3.sp, e.name))
-        elif prev[0] == 'x':
-            log('cast', e.name, 0, '<cast> %d/%d, %d/%d, %d/%d (%s after c%s)' % ( \
-                self.s1.charged, self.s1.sp, self.s2.charged, self.s2.sp, self.s3.charged, self.s3.sp, e.name, index))
-        else:
-            log('cast', e.name, 0, '<cast> %d/%d, %d/%d, %d/%d (%s after %s)' % ( \
-                self.s1.charged, self.s1.sp, self.s2.charged, self.s2.sp, self.s3.charged, self.s3.sp, e.name, prev))
+        prev = self.action.getprev().name
+        log('cast', e.name, f'after {prev}', ', '.join([f'{s.charged}/{s.sp}' for s in self.skills]))
 
         dmg_coef = self.conf[e.name + '.dmg']
         func = e.name + '_before'
@@ -1735,7 +1837,7 @@ class Adv(object):
 
         if 'buff' in self.conf[e.name] and self.conf[e.name + '.buff'] is not None:
             buffarg = self.conf[e.name + '.buff']
-            if e.name == 's3':
+            if e.name == 's3' and self.s3.owner is None:
                 if len(self.s3_buff_list) == 0:
                     for ba in buffarg:
                         if ba is not None:
@@ -1748,9 +1850,11 @@ class Adv(object):
                         self.s3_buff = self.s3_buff_list[0]
                 else:
                     idx = (self.s3_buff_list.index(self.s3_buff) + 1) % len(self.s3_buff_list)
-                    for buff in self.s3_buff_list:
-                        buff.off()
-                    self.s3_buff_list[idx].on()
+                    try:
+                        self.s3_buff.off()
+                        self.s3_buff = self.s3_buff_list[idx].on()
+                    except:
+                        self.s3_buff = None
             else:
                 self.do_buff(e, buffarg).on()
 
@@ -1827,7 +1931,6 @@ class Adv(object):
         rt = self.conf.rotation
         if self.o_rt != rt:
             print('cannot change rotation after run')
-            errrrrrrrrrrrrrrrrr()
         ret = ''
         ret += rt[p]
         p += 1
@@ -1842,7 +1945,6 @@ class Adv(object):
 
         if self.o_rt != rt:
             print('cannot change rotation after run')
-            errrrrrrrrrrrrrrrrr()
         ret = ''
         while (1):
             if p >= self.rt_len:
@@ -1862,7 +1964,6 @@ class Adv(object):
             xidx = int(rt[p + 1])
             if xidx > 5 or xidx < 1:
                 print(rt + '\nlocation:%d,%s' % (p + 1, xidx))
-                errrrrrrrrrrrrrrrr()
             ret += rt[p:p + 2]
             p += 2
         elif rt[p] in ['1', '2', '3', '4', '5'] and rt[p + 1] in ['x', 'c']:
@@ -1873,7 +1974,6 @@ class Adv(object):
             sidx = int(rt[p + 1])
             if sidx > 3 or sidx < 1:
                 print(rt + '\nlocation:%d,%s' % (p + 1, sidx))
-                errrrrrrrrrrrrrrrr()
             ret += rt[p:p + 2]
             p += 2
         elif rt[p:p + 2] == 'fs':
@@ -1891,7 +1991,6 @@ class Adv(object):
         else:
             print(rt + '\nlocation:%d' % (p))
             print(rt[p])
-            errrrrrrrrrrrrrrrrrr()
 
         if p >= self.rt_len:
             self.rotation_reset()

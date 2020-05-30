@@ -57,8 +57,8 @@ class Event(object):
     def __call__(self, expand=None):
         self.on(self)
 
-    def __str__(self):
-        return self.__name
+    # def __str__(self):
+    #     return self.__name
 
 
     #__call__ = on
@@ -135,6 +135,7 @@ class Timer(object):
 
         self.timing = 0
         self.online = 0
+        self.pause_diff = 0
         #self.on()
 
 
@@ -160,6 +161,8 @@ class Timer(object):
     def add(self, time=0):
         self.timeout += time
         self.timing += time
+        if self.timing + time < now():
+            self.off()
 
     #alias
     disable = off

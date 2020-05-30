@@ -1,21 +1,22 @@
-import adv.adv_test
 from core.advbase import *
 from slot.d import *
+from slot.a import *
 def module():
     return Chelsea
 
 class Chelsea(Adv):
     conf = {}
-    conf['slot.d'] = Dreadking_Rathalos()
+    conf['slots.d'] = Dreadking_Rathalos()
+    conf['slots.a'] = Mega_Friends()+Primal_Crisis()
     conf['acl'] = """
-        `s3, not self.s3_buff
-        `s1
-        `s2
-        `fs, x=3
-        """
+        `s3, fsc and not self.s3_buff
+        `s1, fsc
+        `s2, fsc
+        `fs, x=1
+    """
+    coab = ['Blade', 'Grace', 'Serena']
 
     def prerun(self):
-        self.hp = 100
         self.obsession = 0
         self.s2_buffs = []
 
@@ -25,6 +26,12 @@ class Chelsea(Adv):
 
         Event('dragon').listener(self.s2_clear)
 
+    @staticmethod
+    def prerun_skillshare(adv, dst):
+        adv.a3 = Dummy()
+        adv.a1atk = Dummy()
+        adv.a1spd = Dummy()
+
     def s2_clear(self, e):
         for buff in self.s2_buffs:
             buff.off()
@@ -33,77 +40,34 @@ class Chelsea(Adv):
         self.obsession = 0
 
     def dmg_before(self, name):
-        hpold = self.hp
-
+        new_hp = self.hp
         if name != 's1' and self.a3.get():
-            self.hp -= 3 * self.obsession
-
-        if self.hp <= 0:
-            self.hp = hpold
-        elif self.hp > 100:
-            self.hp = 100
-
-        if self.hp <= 30:
-            self.a1atk.on()
-            self.a1spd.on()
-        else:
-            self.a1atk.off()
-            self.a1spd.off()
+            new_hp -= 3 * self.obsession
+        self.update_hp(new_hp)
 
     def dmg_proc(self, name, amount):
-        hpold = self.hp
-
+        new_hp = self.hp
         if name == 's1' and self.a3.get():
-            self.hp += 7
-
-        if self.hp <= 0:
-            self.hp = hpold
-        elif self.hp > 100:
-            self.hp = 100
-
-        if self.hp <= 30:
-            self.a1atk.on()
-            self.a1spd.on()
-        else:
-            self.a1atk.off()
-            self.a1spd.off()
+            new_hp += 7
+        self.update_hp(new_hp)
 
     def s1_proc(self, e):
-        hpold = self.hp
+        for _ in range(7):
+            self.dmg_make(e.name,1.36)
+            self.hits += 1
 
-        if self.a3.get():
-            self.hp -= 3 * self.obsession
-
-        if self.hp <= 0:
-            self.hp = hpold
-        elif self.hp > 100:
-            self.hp = 100
-
-        if self.hp <= 30:
+    def update_hp(self, new_hp):
+        if new_hp <= 30:
             self.a1atk.on()
             self.a1spd.on()
         else:
             self.a1atk.off()
             self.a1spd.off()
-
-        self.dmg_make('s1',1.36)
-        self.hits += 1
-        self.dmg_make('s1',1.36)
-        self.hits += 1
-        self.dmg_make('s1',1.36)
-        self.hits += 1
-        self.dmg_make('s1',1.36)
-        self.hits += 1
-        self.dmg_make('s1',1.36)
-        self.hits += 1
-        self.dmg_make('s1',1.36)
-        self.hits += 1
-        self.dmg_make('s1',1.36)
-        self.hits += 1
+        self.set_hp(new_hp)
 
     def s2_proc(self, e):
-        self.s2_buffs.append(Selfbuff('s2',0.3,60).on())
-        self.obsession = Selfbuff('s2').stack()
+        self.s2_buffs.append(Selfbuff(e.name,0.3,60).on())
+        self.obsession = Selfbuff(e.name).stack()
         self.a3.on()
 
     def dmg_make(self, name, dmg_coef, dtype=None, fixed=None):
@@ -116,5 +80,5 @@ class Chelsea(Adv):
         return count
 
 if __name__ == '__main__':
-    conf = {}
-    adv.adv_test.test(module(), conf)
+    from core.simulate import test_with_argv
+    test_with_argv(None, *sys.argv)

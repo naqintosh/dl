@@ -1,5 +1,5 @@
-import adv.adv_test
 from core.advbase import *
+from slot.a import *
 from slot.d import *
 
 def module():
@@ -8,19 +8,20 @@ def module():
 class Philia(Adv):
     a1 = ('a',0.1,'hp100')
     conf = {}
-    conf['slot.d'] = Garland()
+    conf['slots.a'] = Forest_Bonds()+Primal_Crisis()
     conf['acl'] = """
+        `dragon.act("c3 s end")
+        `s3, not self.s3_buff
         `s1, seq=5 or fsc
         `s2, seq=5 or fsc
-        `s3, seq=5 or fsc
         """
+    coab = ['Blade','Dragonyule_Xainfried','Lin_You']
     conf['afflict_res.paralysis'] = 0
 
     def s2_proc(self, e):
-        self.afflics.paralysis('s2',90,0.60)
+        self.afflics.paralysis(e.name,90,0.60)
 
 
 if __name__ == '__main__':
-    conf = {}
-    adv.adv_test.test(module(), conf)
-
+    from core.simulate import test_with_argv
+    test_with_argv(None, *sys.argv)

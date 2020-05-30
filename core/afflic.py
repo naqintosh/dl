@@ -75,6 +75,7 @@ class AfflicUncapped(object):
         self.name = name
         self.resist = 0
         self.rate = 1
+        self.res_modifier = 0
         self.tolerance = 0.2
         self.duration = 12
         self.states = None
@@ -83,6 +84,9 @@ class AfflicUncapped(object):
 
         self.c_uptime = (0, 0)
         self.last_afflict = 0
+        self.event = Event(self.name)
+
+        self.get_override = 0
 
     def get_tolerance(self):
         if self.tolerance > 1:
@@ -103,7 +107,7 @@ class AfflicUncapped(object):
             return self.resist
 
     def get(self):
-        return self._get
+        return self.get_override or self._get
 
     def update(self):
         self.uptime()
@@ -121,6 +125,9 @@ class AfflicUncapped(object):
     def __call__(self, *args, **argv):
         return self.on(*args, **argv)
 
+    def set_res_mod(self, delta):
+        self.res_modifier = min(self.res_modifier + delta, 1)
+
     def on(self):
         self.resist = self.get_resist()
         self.rate = self.get_rate()
@@ -131,6 +138,7 @@ class AfflicUncapped(object):
         states = defaultdict(lambda: 0.0)
         total_success_p = 0.0
         for res, state_p in self.states.items():
+            res -= self.res_modifier
             if res >= self.rate or res >= 1:
                 states[res] += state_p
             else:
@@ -144,6 +152,10 @@ class AfflicUncapped(object):
         self.stacks.append(total_success_p)
         Timer(self.stack_end_fun(total_success_p), self.duration).on()
         self.update()
+        
+        self.event.rate = total_success_p
+        self.event()
+
         return total_success_p
 
     def uptime(self):
@@ -154,7 +166,7 @@ class AfflicUncapped(object):
         prev_r, prev_t = self.c_uptime
         rate = prev_r + next_r*(next_t-prev_t)
         self.c_uptime = (rate, next_t)
-        if next_t > 0 and rate > 0 and next_t % 60 == 0:
+        if next_t > 0 and rate > 0:
             log('{}_uptime'.format(self.name), '{:.2f}/{:.2f}'.format(rate, next_t), '{:.2%}'.format(rate/next_t))
 
 
@@ -165,6 +177,7 @@ class AfflicCapped(object):
         self.name = name
         self.resist = 0
         self.rate = 1
+        self.res_modifier = 0
         self.tolerance = 0.2
         self.default_duration = duration
         self.duration = duration
@@ -174,6 +187,9 @@ class AfflicCapped(object):
 
         self.c_uptime = (0, 0)
         self.last_afflict = 0
+        self.event = Event(self.name)
+
+        self.get_override = 0
 
     def get_tolerance(self):
         if self.tolerance > 1:
@@ -194,7 +210,7 @@ class AfflicCapped(object):
             return self.resist
 
     def get(self):
-        return self._get
+        return self.get_override or self._get
 
     def update(self):
         self.uptime()
@@ -215,6 +231,9 @@ class AfflicCapped(object):
     def __call__(self, *args, **argv):
         return self.on(*args, **argv)
 
+    def set_res_mod(self, delta):
+        self.res_modifier = min(self.res_modifier + delta, 1)
+
     def on(self):
         self.resist = self.get_resist()
         self.rate = self.get_rate()
@@ -226,7 +245,7 @@ class AfflicCapped(object):
         states = defaultdict(lambda: 0.0)
         total_p = 0.0
         for start_state, start_state_p in self.states.items():
-            res = start_state.resist
+            res = start_state.resist - self.res_modifier
             if res >= self.rate or res >= 1 or len(start_state.timers) >= self.stack_cap:
                 states[start_state] += start_state_p
             else:
@@ -241,6 +260,10 @@ class AfflicCapped(object):
                     states[start_state] += overall_fail_p
         self.states = states
         self.update()
+
+        self.event.rate = total_p
+        self.event()
+
         return total_p
 
     def uptime(self):
@@ -262,27 +285,36 @@ class Afflic_dot(AfflicUncapped):
         self.duration = duration
         self.default_iv = iv
         self.iv = iv
+        self.edge = 0
+        self.dot = None
 
     def on(self, name, rate, coef, duration=None, iv=None, dtype=None):
-        self.rate = rate
+        self.rate = rate + self.edge
         self.coef = coef
         self.dtype = dtype
         self.duration = duration or self.default_duration
         self.iv = iv or self.default_iv
-        dot = Dot('o_%s_%s' % (name, self.name), coef, self.duration, self.iv, self.dtype)
-        dot.on()
+        self.dot = Dot('o_%s_%s' % (name, self.name), coef, self.duration, self.iv, self.dtype)
+        self.dot.on()
         r = super().on()
-        dot.tick_dmg *= r
+        self.dot.tick_dmg *= r
         return r
+
+    def timeleft(self):
+        if self.dot:
+            return self.dot.dotend_timer.timing-now()
+        else:
+            return 0
 
 
 class Afflic_cc(AfflicCapped):
     def __init__(self, name=None, duration=6.5):
         super().__init__(name, duration)
         self.stack_cap = 1
+        self.edge = 0
 
     def on(self, name, rate, duration=None):
-        self.rate = rate
+        self.rate = rate + self.edge
         self.duration = duration or self.default_duration
         return super().on()
 
@@ -294,9 +326,10 @@ class Afflic_scc(AfflicCapped):
     def __init__(self, name=None, duration=8):
         super().__init__(name, duration)
         self.stack_cap = 1
+        self.edge = 0
 
     def on(self, name, rate, duration=None):
-        self.rate = rate
+        self.rate = rate + self.edge
         self.duration = duration or self.default_duration
         return super().on()
 
@@ -307,8 +340,12 @@ class Afflic_bog(Afflic_scc):
     def on(self, name, rate, duration=None):
         p = super().on(name, rate, duration)
         if p:
-            from core.advbase import Debuff
-            Debuff('{}_bog'.format(name),-0.5*p,self.duration,1,'att','bog').on()
+            # from core.advbase import Debuff
+            # Debuff('{}_bog'.format(name),-0.5*p,self.duration,1,'att','bog').on()
+            from core.advbase import Selfbuff
+            buff = Selfbuff('{}_bog'.format(name),0.5*p,self.duration,'att','bog')
+            buff.bufftime = buff._no_bufftime
+            buff.on()
         return p
 
 class Afflics(object):
@@ -419,7 +456,6 @@ class Afflics(object):
                 cc = Dot('o_' + name + '_' + atype, 0, duration, duration + 0.01)
                 cc.on()
                 self.cc[atype] = cc
-
                 if atype == 'blind':
                     self.resist[atype] += 20  # 10
                 else:  # elif atype in ['freeze','stun','sleep','bog']:
@@ -434,13 +470,14 @@ class Afflics(object):
         # for atype in ['poison', 'burn', 'paralysis', 'blind', 'freeze', 'stun', 'sleep', 'bog']:
         for atype in AFFLICT_LIST:
             aff = self.__dict__[atype]
-            aff.uptime()
-            rate, t = aff.c_uptime
-            # last = aff.last_afflict
-            if rate > 0:
-                # print('{}_uptime'.format(atype), '{:.2f}/{:.2f}'.format(rate, t), '{:.2%}'.format(rate/t))
-                # print('last_{}: {:.2f}s'.format(atype, last))
-                uptimes[atype] = rate/t
+            if aff.get_override == 0:
+                aff.uptime()
+                rate, t = aff.c_uptime
+                # last = aff.last_afflict
+                if rate > 0:
+                    # print('{}_uptime'.format(atype), '{:.2f}/{:.2f}'.format(rate, t), '{:.2%}'.format(rate/t))
+                    # print('last_{}: {:.2f}s'.format(atype, last))
+                    uptimes[atype] = rate/t
         return uptimes
 
     def rinit(self):

@@ -1,7 +1,5 @@
-import adv.adv_test
 from core.advbase import *
 from slot.a import *
-from slot.d import *
 
 def module():
     return Joachim
@@ -12,46 +10,45 @@ class Joachim(Adv):
     a3 = ('k_poison',0.2)
     
     conf = {}
-    conf['slot.a'] = Dear_Diary() + The_Fires_of_Hate()
-    conf['slot.d'] = Vayu()
-    conf['acl'] = """
+    conf['slots.a'] = Resounding_Rendition()+The_Fires_of_Hate()
+    conf['acl'] = '''
+        `dragon.act('c3 s end')
+        `s3, not self.s3_buff
         `s2, s=1
         `s1
-        `s3
-    """
+    '''
+    coab = ['Blade','Dragonyule_Xainfried','Lin_You']
     conf['afflict_res.poison'] = 0
 
     def init(self):
-        self.s1_stance = 1
+        self.phase['s1'] = 0
+
+    @staticmethod
+    def prerun_skillshare(adv, dst):
+        adv.phase[dst] = 0
 
     def s1_proc(self, e):
-        with Modifier("s1killer", "poison_killer", "hit", 0.8):
+        with KillerModifier('s1_killer', 'hit', 0.8, ['poison']):
             coef = 2.2
-            self.dmg_make('s1', coef)
+            self.dmg_make(e.name, coef)
 
-            if self.s1_stance == 1:
-                self.afflics.poison('s1',110, 0.53)
-                self.s1_stance = 2
-            elif self.s1_stance == 2:
-                self.afflics.poison('s1',160, 0.53)
-                self.s1_stance = 3
-            elif self.s1_stance == 3:
-                Teambuff("s1atk",0.15,10).on()
-                self.afflics.poison('s1',160, 0.53)
-                self.s1_stance = 1
+            self.phase[e.name] += 1
+            if self.phase[e.name] == 1:
+                self.afflics.poison(e.name,110, 0.53)
+            elif self.phase[e.name] == 2:
+                self.afflics.poison(e.name,160, 0.53)
+            elif self.phase[e.name] == 3:
+                Teambuff(e.name,0.15,10).on()
+                self.afflics.poison(e.name,160, 0.53)
+            self.phase[e.name] %= 3
 
-            self.dmg_make('s1', coef)
+            self.dmg_make(e.name, coef)
 
 
     def s2_proc(self, e):
         self.s1.charge(self.s1.sp)
 
 
-
 if __name__ == '__main__':
-    conf = {}
-    adv.adv_test.test(module(), conf)
-
-
-
-
+    from core.simulate import test_with_argv
+    test_with_argv(None, *sys.argv)

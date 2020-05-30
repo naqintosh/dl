@@ -48,7 +48,7 @@ class Pazuzu(DragonBase):
         'dx3.hit': 3,
 
         'ds.recovery': 146 / 60, # skill frames
-        'ds.hit': 8,
+        'ds.hit': 5,
 
         'dodge.startup': 39 / 60, # dodge frames
     }
@@ -62,7 +62,7 @@ class Pazuzu(DragonBase):
         dmg = self.adv.dmg_make('ds',0.91,'s')
         self.ds_buff.on()
         self.adv.afflics.poison('ds',120,0.291,30,dtype='s')
-        return dmg + self.adv.dmg_make('ds',7*0.91,'s')
+        return dmg + self.adv.dmg_make('ds',4*0.91,'s')
 
 class Long_Long(DragonBase):
     ele = 'wind'
@@ -226,8 +226,23 @@ class Ariel(DragonBase):
     ele = 'wind'
     att = 126
     a = [('a', 0.50), ('sp',0.30)]
+    dragonform = {
+        'act': 'c3 s',
 
-class Unreleased_DKR_Baby_dont_hurt_me(DragonBase):
-    ele = 'wind'
-    att = 127
-    a = [('a', 0.55), ('fs', 0.60), ('sp',0.30,'fs')]
+        'dx1.dmg': 1.90,
+        'dx1.startup': 19 / 60.0, # c1 frames
+        'dx1.hit': 1,
+
+        'dx2.dmg': 2.09,
+        'dx2.startup': 38 / 60.0, # c2 frames
+        'dx2.hit': 1,
+
+        'dx3.dmg': 0.82,
+        'dx3.startup': 60 / 60.0, # c3 frames
+        'dx3.recovery': 58 / 60.0, # recovery
+        'dx3.hit': 3,
+
+        'ds.dmg': 12.00,
+        'ds.recovery': 145 / 60, # skill frames
+        'ds.hit': 1,
+    }

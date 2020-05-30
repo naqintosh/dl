@@ -1,11 +1,8 @@
-import adv.adv_test
 from core.advbase import *
 from module.bleed import Bleed
-from slot.a import *
 
 def module():
     return Addis
-
 
 class Addis(Adv):
     comment = 's2 c2 s1 c5fsf c4fs s1; hold s2s1 until bleed under 3'
@@ -13,11 +10,13 @@ class Addis(Adv):
     a3 = ('bk',0.20)
     conf = {}
     conf['acl'] = """
+        `dragon.act('c3 s end')
+        `s3, not self.s3_buff
         `s2, s1.charged>=s1.sp-260 and seq=5 and self.bleed._static['stacks'] != 3
         `s1, s2.charged<s2.sp and self.bleed._static['stacks'] != 3
-        `s3, seq=5 and not self.s2buff.get()
         `fs, self.s2buff.get() and seq=4 and self.s1.charged>=s1.sp-200
         """
+    coab = ['Akasha','Dragonyule_Xainfried','Lin_You']
     conf['afflict_res.poison'] = 0
 
     def getbleedpunisher(self):
@@ -27,26 +26,25 @@ class Addis(Adv):
 
     def prerun(self):
         random.seed()
-        self.s2buff = Selfbuff("s2_shapshifts1",1, 10,'ss','ss')
-        self.s2str = Selfbuff("s2_str",0.25,10)
-        self.bleedpunisher = Modifier("bleed","att","killer",0.08)
+        self.s2buff = Selfbuff('s2_shapshifts1',1, 10,'ss','ss')
+        self.s2str = Selfbuff('s2_str',0.25,10)
+        self.bleedpunisher = Modifier('bleed','att','killer',0.08)
         self.bleedpunisher.get = self.getbleedpunisher
-        self.bleed = Bleed("g_bleed",0).reset()
+        self.bleed = Bleed('g_bleed',0).reset()
         #self.crit_mod = self.rand_crit_mod
 
+    @staticmethod
+    def prerun_skillshare(adv, dst):
+        adv.s2buff = Dummy()
 
     def s1_proc(self, e):
-
         if self.s2buff.get():
             self.s2buff.buff_end_timer.timing += 2.5
             self.s2str.buff_end_timer.timing += 2.5
-            log('-special','s1_with_s2')
             if random.random() < 0.8:
-                Bleed("s1", 1.32).on()
-            else:
-                log('-special','s1_failed')
+                Bleed(e.name, 1.32).on()
         else:
-            self.afflics.poison('s1',100,0.53)
+            self.afflics.poison(e.name,100,0.53)
 
 
     def s2_proc(self, e):
@@ -55,6 +53,5 @@ class Addis(Adv):
 
 
 if __name__ == '__main__':
-    conf = {}
-    adv.adv_test.test(module(), conf)
-
+    from core.simulate import test_with_argv
+    test_with_argv(None, *sys.argv)
